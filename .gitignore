@@ -1,0 +1,89 @@
+# ============================
+#   PYTHON BASICS
+# ============================
+
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+venv/
+.env/
+.venv/
+env/
+ENV/
+
+# ============================
+#   CONFIGURAZIONI LOCALI
+# ============================
+
+# Environment variables
+.env
+*.env
+.env.*
+
+# Credenziali o configurazioni private
+*.ini
+*.cfg
+*.toml
+*.yaml
+*.yml
+
+# ============================
+#   DATABASE / STORAGE
+# ============================
+
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+
+# ============================
+#   CACHE & TEMPORANEI
+# ============================
+
+# Python cache
+.cache/
+.pytest_cache/
+pip-wheel-metadata/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Sistema
+Thumbs.db
+.DS_Store
+
+# ============================
+#   LOGS
+# ============================
+
+*.log
+logs/
+log/
+
+# ============================
+#   CARTELLE DEL TUO PROGETTO
+# ============================
+
+# Cartelle viste nello screenshot
+data/
+temp/
+videos/
+
+# Output generati
+output/
+build/
+dist/
+
+# ============================
+#   GIT
+# ============================
+
+# Ignora il file .gitignore stesso? (NO!)
+# .gitignore
+# File JSON locali non da tracciare
+wikialias.json
