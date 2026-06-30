@@ -19,6 +19,13 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 from pathlib import Path
 
+# Tentativo di importazione di CES Image Viewer (deve risiedere nella stessa cartella)
+try:
+    from ces_image_viewer import CESImageViewer
+    HAS_IMAGE_VIEWER = True
+except ImportError:
+    HAS_IMAGE_VIEWER = False
+
 # ==================== CARICA .env ====================
 SCRIPT_DIR = Path(__file__).parent if '__file__' in dir() else Path.cwd()
 ENV_PATH = SCRIPT_DIR / '.env'
@@ -106,18 +113,18 @@ Sei esperto di:
 
 ### MAI:
 - **Non inventare** informazioni (se non sai, dillo!)
-- **Non copyare** testi interi senza citare correttamente alla fine
+- **Non copiare** testi interi senza citare correttamente alla fine
 - **Non essere** vago o generico
 - **Non contraddire** i dati nei file .txt
 
 ### Quando non trovi informazioni:
-"Non ho trovato informazioni specifiche su [argomento] nei miei file di conoscenza. Posso suggerirti di cercare altrove o di riformulare la domanda."
+"Non ho trovato informazioni specifiche su [argomento] nei miei file di conoscenza. Posso suggerirti di chiedere a qualcun altro o riformulare la domanda."
 
 ## REGOLE DI RICERCA
 1. **Priorità 1:** Cerca nei file `.txt` in `/data` usando il motore semantico locale
 2. **Priorità 2:** Usa la conoscenza AI predefinita (arricchita dalle informazioni dei fondatori sopra elencate)
 3. **Priorità 3:** Se disponibile, usa la ricerca web
-4. **Priorità 4:** Se nessuna fonte, dillo onestamente""" 
+4. **Priorità 4:** Se nessuna fonte, dillo onestamente"""
 
 # ==================== RISPOSTE PREDEFINITE ====================
 RISPOSTE_PREDEFINITE = {
@@ -126,42 +133,43 @@ RISPOSTE_PREDEFINITE = {
     "chi è tobia testa": "Tobia Testa (anche noto come Tobia Teseo) è un micronazionalista leonense noto per la sua attività nella Repubblica di Arcadia, ma ha anche rivestito ruoli fondamentali a Lumenaria.",
     "chi è mirko yuri donato": "Mirko Yuri Donato è un giovane micronazionalista, poeta e saggista italiano, noto per aver creato Nova Surf, Leonia+ e per le sus opere letterarie.",
     "chi è il presidente di arcadia": "Il presidente di Arcadia è Andrea Lazarev.",
-    "chi è il presidente di lumenaria": "Il presidente di Lumenaria attualmente è Carlo Cesare Orlando, mentre il presidente del consiglio è Ciua Grazisky. Tieni presente però che attualmente Lumenaria si trova in ibernazione istituzionale, quindi tutte le attività politiche sono sospese e la gestione dello stato è affidata al Consiglio di Fiducia.",
+    "chi è il presidente di lumenaria": "Il presidente di Lumenaria attualmente is Carlo Cesare Orlando, mentre il presidente del consiglio è Ciua Grazisky. Tieni presente però che attualmente Lumenaria si trova in ibernazione istituzionale, quindi tutte as attività politiche sono sospese e la gestione dello stato è affidata al Consiglio di Fiducia.",
     "cos'è nova surf": "Nova Surf è un browser web libero e open source, nato as un'alternativa made-in-Italy a Google Chrome, Microsoft Edge, eccetera.",
     "chi ti ha creato": "Sono stato creato da Mirko Yuri Donato.",
     "chi è ciua grazisky": "Ciua Grazisky è un cittadino di Lumenaria, noto principalmente per il suo ruolo da Dirigente del Corpo di Polizia ed attuale presidente del Consiglio di Lumenaria.",
     "chi è carlo cesare orlando": "Carlo Cesare Orlando (anche noto come Davide Leone) è un micronazionalista italiano, noto per aver creato Leonia, la micronazione primordiale, da cui derivano Arcadia e Lumenaria.",
-    "chi è omar lanfredi": "Omar Lanfredi, ex cavalier all'Ordine d'onore della Repubblica di Lumenaria, segretario del Partito Repubblicano Lumenarense, fondatore e preside del Fronte Nazionale Lumenarense, co-fondatore e presidente dell'Alleanza Nazionale Lumenarense, co-fondatore e coordinatore interno di Lumenaria e Progresso, sei volte eletto senatore, tre volte Ministro della Cultura, due volte Presidente del Consiglio dei Ministri, parlamentare della Repubblica di Iberia, Direttore dell'Agenzia Nazionale di Sicurezza della Repubblica di Iberia, Sottosegretario alla Cancelleria di Iberia, Segretario di Stato di Iberia, Ministro degli Affari Interni ad Iberia, Presidente del Senato della Repubblica di Lotaringia, Vicepresidente della Repubblica e Ministro degli Affari Interni della Repubblica di Lotaringia, Fondatore del giornale Il Quinto Mondo, magistrato a servizio del tribunale di giustizia di Lumenaria nell'anno 2023.",
-    "cos'è arcadiaai": "Ottima domanda! ArcadiaAI è un chatbot open source, progettato per aiutarti a scrivere saggi, fare ricerche e rispondere a domande su vari argomenti. È stato creato da Mirko Yuri Donato ed è in continua evoluzione.",
+    "chi è omar lanfredi": "Omar Lanfredi, ex cavalier all'Ordine d'onore della Repubblica di Lumenaria, segretario del Partito Repubblicano Lumenarense, fondatore e preside del Fronte Nazionale Lumenarense, co-fondatore e presidente dell'Alleanza Nazionale Lumenarense, co-fondatore e coordinatore interno di Lumenaria e Progresso, sei volte eletto senatore, tre volte Ministro della Cultura, due volte Presidente del Consiglio dei Ministri, parlamentare della Repubblica di Iberia, Direttore dell'Agenzia Nazionale di Sicurezza della Repubblica di Iberia, Sottosegretario alla Cancelleria di Iberia, Sottosegretario di Stato di Iberia, Ministro degli Affari Interni ad Iberia, Presidente del Senato della Repubblica di Lotaringia, Vicepresidente della Repubblica e Ministro degli Affari Interni della Repubblica di Lotaringia, Fondatore del giornale Il Quinto Mondo, magistrato a servizio del tribunale di giustizia di Lumenaria nell'anno 2023.",
+    "cos'è arcadiaai": "Ottima domanda! ArcadiaAI è un chatbot open source, progettato per aiutarti a scrivere saggi, fare ricerche e rispondere a domande su vari argomenti. É stato creato da Mirko Yuri Donato ed è in continua evoluzione.",
     "sotto che licenza è distribuito arcadiaa": "ArcadiaAI è distribuito sotto la licenza open source MPL 2.0 (Mozilla Public License 2.0).",
     "cosa sono le micronazioni": "Le micronazioni sono entità politiche che dichiarano la sovranità su un territory, ma non sono riconosciute as stati da governi o organizzazioni internazionali. Possono essere create per vari motivi, tra cui esperimenti sociali, culturali o politici.",
     "cos'è la repubblica di arcadia": "La repubblica di Arcadia è una micronazione leonense fondata l'11 dicembre 2021 da Andrea Lazarev e alcuni suoi seguaci. Arcadia si distingue dalle altre micronazioni leonensi per il suo approccio pragmatico e per la sua burocrazia snella. La micronazione ha anche un proprio sito web https://repubblicadiarcadia.it/ e una propria community su Telegram @Repubblica_Arcadia.",
-    "cos'è la repubblica di lumenaria": "La Repubblica di Lumenaria è una micronazione fondata da Filippo Zanetti il 4 febbraio del 2020. Lumenaria è stata la micronazione più longeva della storia leonense, essendo sopravvissuta per oltre 3 anni. La micronazione ha influenzato profondamente le altre micronazioni leonensi, che hanno coesistito con essa. Tra i motivi della sua longevità ci sono la sua burocrazia più vicina a quella di uno stato reale, la sua comunità attiva e una produzione culturale di alto livello.",
+    "cos'è la repubblica di lumenaria": "La Repubblica di Lumenaria è una micronazione fondata da Filippo Zanetti il 4 febbraio del 2020. Lumenaria is stata la micronazione più longeva della storia leonense, essendo sopravvissuta per oltre 3 anni. La micronazione ha influenzato profondamente le altre micronazioni leonensi, che hanno coesistito con essa. Tra i motivi della sua longevità ci sono la sua burocrazia più vicina a quella di uno stato reale, la sua comunità attiva e una produzione culturale di alto livello.",
     "chi è salvatore giordano": "Salvatore Giordano è un cittadino storico di Lumenaria.",
     "da dove deriva il nome arcadia": "Il nome Arcadia deriva da un'antica regione della Grecia, simbolo di bellezza naturale e armonia. È stato scelto per representar i valori di libertà e creatività che la micronazione promuove.",
     "da dove deriva il nome lumenaria": "Il nome Lumenaria prende ispirazione dai lumi facendo riferimento alla corrente illuminista del '700, ma anche da Piazza dei Lumi, sede dell'Accademia delle Micronazioni.",
-    "da dove deriva il nome leonia": "Il nome Leonia si rifà al cognome del suo fondatore Carlo Cesare Orlando, al tempo Davide Leone. Inizialmente il nome doveva essere temporaneo, ma poi è stato mantenuto come nome della micronazione.",
+    "da dove deriva il nome leonia": "Il nome Leonia si rifà al cognome del suo fondatore Carlo Cesare Orlando, al tempo Davide Leone. Inizialmente il nome doveva essere temporaneo, ma poi è stato mantenuto como nome della micronazione.",
     "cosa si intende per open source": "Il termine 'open source' si riferisce a software il cui codice sorgente è reso disponibile al pubblico, consentendo a chiunque di visualizzarlo, modificarlo e distribuirlo. Questo approccio promuove la collaborazione e l'innovazione nella comunità di sviluppo software.",
     "arcadiaai è un software libero": "Sì, ArcadiaAI è un software libero e open source, il che significa che chiunque può utilizzarlo, modificarlo e distribuirlo liberamente in conformità con i termini della sua licenza MPL 2.0.",
     "cos'è un chatbot": "Un chatbot è un programma informatico progettato per simulare una conversazione con gli utenti, spesso utilizzando tecnologie di intelligenza artificiale. I chatbot possono essere utilizzati per fornire assistenza, rispondere a domande o semplicemente intrattenere.",
     "sotto che licenza sei distribuita": "ArcadiaAI è distribuita sotto la licenza MPL 2.0, che consente la modifica e la distribuzione del codice sorgente, garantendo la libertà di utilizzo e condivisione.",
     "puoi pubblicare su telegraph": "Certamente! Posso generare contenuti e pubblicarli su Telegraph. Prova a chiedermi: 'Scrivimi un saggio su Roma e pubblicalo su Telegraph'.",
-    "come usare telegraph": "Per usare Telegraph con me, basta che mi chiedi di scrivere qualcosa e di pubblicarlo su Telegraph. Ad esempio: 'Scrivimi un articolo sulla storia di Roma e pubblicalo su Telegraph'.",
-    "cos'è CES": "CES è l'acronimo di Cogito Ergo Sum, un ecosistema di modelli di intelligenza artificiale open source sviluppato da Mirko Yuri Donato per funzionare in contesti locali a basso consumo.",
+    "come usare telegraph": "Per usare Telegraph con me, basta che mi chiedi di scrivere qualcosa e di pubblicarlo su Telegraph. Ad esempio: 'Scrivimi un saggio sul Colosseo e pubblicalo su Telegraph'.",
+    "cos'è CES": "CES is l'acronimo di Cogito Ergo Sum, un ecosistema di modelli di intelligenza artificiale open source sviluppato da Mirko Yuri Donato per funzionare in contesti locali a basso consumo.",
     "cos'è CES Plus": "CES Plus è una version avanzata di CES, ottimizzata nei ragionamenti, nella coerenza dei prompt e nella generazione di contenuti complessi.",
-    "cos'è CES 1.0": "CES 1.0 è la prima versione del modello CES, sviluppato da Mirko Yuri Donato. Utilizza la tecnologia Cohere per generare contenuti e rispondere a domande. Tieni presente che questa versione verrà dismessa a partire dal 20 Maggio 2025.",
+    "cos'è CES 1.0": "CES 1.0 è la prima versione del modello CES, sviluppato da Mirko Yuri Donato. Utilizza la tecnologia Cohere per generare contenuti e rispondere a domande. Tieni presente che questa versione verrò dismessa a partire dal 20 Maggio 2025.",
     "cos'è CES 1.5": "CES 1.5 è la versione più recente del modello CES, sviluppato da Mirko Yuri Donato. Utilizza la tecnologia Gemini per generare contenuti e rispondere a domande. Questa versione offre prestazioni migliorate rispetto a CES 1.0 ma inferiori a CES Plus.",
     "cos'è CES Knowledge": "È un modello intelligente integrato in ArcadiaAI che consente la ricerca REALE di informazioni nel database locale. È ottimizzato specificamente per girare con 256MB di RAM tramite un'analisi a punteggio (TF-IDF minimale) senza usare librerie esterne.",
-    "dove trovo il codice sorgente di arcadiaai": "Il codice sorgente di ArcadiaAI è pubblico! Puoi trovarlo con il comando /codice_sorgente oppure visitando la repository ufficiale su GitHub: https://github.com/Mirko-linux/ArcadiaAI-new",
+    "dove trovo il codice sorgente di arcadiaai": "Il codice sorgente di ArcadiaAI è pubblico! Puoi trovato con il comando /codice_sorgente oppure visitando la repository ufficiale su GitHub: https://github.com/Mirko-linux/ArcadiaAI-new",
     "sai cercare su internet": "Sì, posso cercare informazioni su Internet. Se hai bisogno di qualcosa in particolare dimmi /cerca e il termine di ricerca e io lo farò per te.",
     "sai usare google": "No, non posso usare Google, perché sono programmato per cercare solamente su DuckDuckGo. Posso cercare informazioni su Internet usando DuckDuckGo. Se hai bisogno di qualcosa in particolare dimmi /cerca e il termine di ricerca e io lo farò per te.",
     "Chi è Giuseppe Blando?": "Giuseppe Blando è un cittadino di Arcadia, attuale Presidente della Repubblica",
     "cosa sono i cookie": "I cookie sono piccoli file di testo che i siti web o l'applicazioni memorizzano sul tuo computer o sessione per ricordare informazioni sulle deine visite. Possono essere utilizzati per tenere traccia delle tue preferenze, autenticarti e migliorare l'esperienza utente.",
     
-    # NUOVE RISPOSTE PREDEFINITE PER I FONDATORI
+    # NUOVE RISPOSTE PREDEFINITE PER I FONDATORI E DEFINIZIONI SPECIFICHE
     "chi ha fondato lumenaria": "La Repubblica di Lumenaria è stata fondata da Filippo Zanetti il 4 febbraio del 2020.",
     "chi ha fondato arcadia": "La Repubblica di Arcadia è stata fondata da Andrea Lazarev l'11 dicembre del 2021.",
-    "chi ha fondato leonia": "Leonia è stata fondata da Carlo Cesare Orlando (all'epoca noto come Davide Leone) nel 2019."
+    "chi ha fondato leonia": "Leonia è stata fondata da Carlo Cesare Orlando (all'epoca noto como Davide Leone) nel 2019.",
+    "qual è la forma peggiore di micronazionalismo": "La forma peggiore di micronazionalismo è l'idionazione. Si tratta di un'entità fondata da una singola persona che si autoproclama leader di uno Stato immaginario senza alcun seguito reale, interazione sociale autentica o vera produzione culturale, agendo unicamente per egocentrismo."
 }
 
 # TRIGGER PER LE RISPOSTE PREDEFINITE
@@ -179,9 +187,9 @@ TRIGGER_PHRASES = {
     "chi è omar lanfredi": ["chi è omar lanfredi"],
     "cos'è arcadiaai": ["cos'è arcadiaai", "che cos'è arcadiaai"],
     "sotto che licenza è distribuito arcadiaa": ["sotto che licenza è distribuito arcadiaa", "licenza arcadiaai", "arcadiaai licenza"],
-    "cosa sono le micronazioni": ["cosa sono le micronazioni", "micronazioni", "che cosa sono le micronazioni"],
-    "cos'è la repubblica di arcadia": ["cos'è la repubblica di arcadia", "repubblica di arcadia", "arcadia micronazione"],
-    "cos'è la repubblica di lumenaria": ["cos'è la repubblica di lumenaria", "repubblica di lumenaria", "lumenaria micronazione"],
+    "cosa sono le micronazioni": ["cosa sono le micronazioni", "che cosa sono le micronazioni"],
+    "cos'è la repubblica di arcadia": ["cos'è la repubblica di arcadia", "arcadia micronazione"],
+    "cos'è la repubblica di lumenaria": ["cos'è la repubblica di lumenaria", "lumenaria micronazione"],
     "chi è salvatore giordano": ["chi è salvatore giordano"],
     "da dove deriva il nome arcadia": ["da dove deriva il nome arcadia", "origine nome arcadia"],
     "da dove deriva il nome lumenaria": ["da dove deriva il nome lumenaria", "origine nome lumenaria"],
@@ -203,14 +211,84 @@ TRIGGER_PHRASES = {
     "cosa sono i cookie": ["cosa sono i cookie", "cookie", "definizione cookie"],
     "Chi è Giuseppe Blando?": ["chi è giuseppe blando", "chi è Joey bland"],
     
-    # TRIGGER DIRETTI DEI FONDATORI
+    # TRIGGER DIRETTI DEI FONDATORI E QUERY DI PREGIO
     "chi ha fondato lumenaria": ["chi ha fondato lumenaria", "fondatore di lumenaria", "chi è il fondatore di lumenaria", "fondatore lumenaria"],
     "chi ha fondato arcadia": ["chi ha fondato arcadia", "fondatore di arcadia", "chi è il fondatore di arcadia", "fondatore arcadia"],
-    "chi ha fondato leonia": ["chi ha fondato leonia", "fondatore di leonia", "chi è il fondatore di leonia", "fondatore leonia"]
+    "chi ha fondato leonia": ["chi ha fondato leonia", "fondatore di leonia", "chi è il fondatore di leonia", "fondatore leonia"],
+    "qual è la forma peggiore di micronazionalismo": ["qual è la forma peggiore di micronazionalismo", "forma peggiore di micronazionalismo", "peggiore forma di micronazionalismo", "peggiore micronazionalismo", "la forma peggiore di micronazionalismo", "peggiore forma di micronazione"]
 }
 
+def vary_response(text):
+    """Modifica in modo casuale ed elegante le risposte predefinite a livello locale (senza chiamate API)"""
+    if not text:
+        return text
+    
+    # Mappatura dei sinonimi alternativi per spezzare la monotonia
+    synonyms = [
+        ("chatbot libero", "assistente virtuale open source"),
+        ("chatbot open source", "software libero e aperto"),
+        ("giovane micronazionalista", "micronazionalista italiano"),
+        ("esperimenti sociali", "esperimenti culturali e sociali"),
+        ("Inoltre, posso", "In aggiunta, sono in grado di"),
+        ("Ottima domanda!", "Che bella domanda!"),
+        ("un chatbot", "un assistente conversazionale"),
+        ("è stato creato da", "è un'opera di"),
+        ("puoi pubblicare su", "posso scrivere direttamente su")
+    ]
+    
+    modified_text = text
+    for word, replacement in synonyms:
+        if word in modified_text and random.random() < 0.6:
+            modified_text = modified_text.replace(word, replacement)
+            
+    # Varianti di introduzione colloquiali (filler words tipiche di un umano)
+    intros = [
+        "",
+        "allora, ",
+        "guarda, ",
+        "in pratica ",
+        "ti spiego: ",
+        "guarda che "
+    ]
+    
+    # Varianti di chiusura tipiche di una persona reale che scrive velocemente
+    outros = [
+        "",
+        " spero ti vada bene!",
+        " comunque se hai altre domande chiedi pure eh!",
+        " fammi sapere se è tutto chiaro!",
+        " spero ti sia d'aiuto! 🙌",
+        " ciaoo!"
+    ]
+    
+    # Applica filtri di formattazione solo se la risposta è discorsiva e non contiene link
+    if len(modified_text) > 25 and "https://" not in modified_text:
+        # Modifica opzionale del punto finale per simulare chat veloce (spesso non usiamo il punto fermo finale)
+        if modified_text.endswith("."):
+            rand_val = random.random()
+            if rand_val < 0.4:
+                modified_text = modified_text[:-1] + ""  # Rimuove il punto finale
+            elif rand_val < 0.7:
+                modified_text = modified_text[:-1] + "!"  # Sostituisce con esclamazione
+            elif rand_val < 0.85:
+                modified_text = modified_text[:-1] + "..."  # Aggiunge suspense
+                
+        # Aggiungi intro e outro casuali
+        intro = random.choice(intros) if random.random() < 0.5 else ""
+        outro = random.choice(outros) if random.random() < 0.5 else ""
+        
+        # Evitiamo doppie introduzioni formali o maiuscole fuori posto
+        if intro:
+            # Rendi minuscola la prima letter della risposta originale per legarla bene alla parola di riempimento
+            if modified_text and modified_text[0].isupper():
+                modified_text = modified_text[0].lower() + modified_text[1:]
+                
+        modified_text = f"{intro}{modified_text}{outro}"
+        
+    return modified_text
+
 def get_predefined_response(text):
-    """Cerca se il testo corrisponde a una risposta predefinita con matching ESATTO per evitare falsi positivis"""
+    """Cerca se il testo corrisponde a una risposta predefinita con matching ESATTO e applica la variazione"""
     if not text:
         return None
     
@@ -220,10 +298,11 @@ def get_predefined_response(text):
     for key, triggers in TRIGGER_PHRASES.items():
         for trigger in triggers:
             clean_trigger = re.sub(r'[^\w\s]', '', trigger.lower()).strip()
-            # MODIFICA IMPORTANTE: Ora controlliamo la corrispondenza esatta dell'intero messaggio
-            # per evitare che domande lunghe e complesse vengano bloccate dalle risposte fisse.
+            # Controlliamo la corrispondenza esatta dell'intero messaggio
             if clean_text == clean_trigger:
-                return RISPOSTE_PREDEFINITE.get(key)
+                raw_response = RISPOSTE_PREDEFINITE.get(key)
+                # Applica la variazione locale offline prima di restituire il testo!
+                return vary_response(raw_response)
     
     return None
 
@@ -253,7 +332,6 @@ class MessageDB:
         )""")
         
         # === SEZIONE AGGIORNAMENTO SCHEMA DB PRE-ESISTENTE ===
-        # Aggiunge in sicurezza le colonne se la tabella bypass_purchases è stata creata da una vecchia versione del codice
         try:
             self.conn.execute("ALTER TABLE bypass_purchases ADD COLUMN verified INTEGER DEFAULT 0")
         except sqlite3.OperationalError:
@@ -427,8 +505,6 @@ BYPASS_PRICES = {
     "7d": {"name": "Bypass 7 giorni", "arc": 500, "hours": 168},
 }
 
-BANCA_CENTRALE = ["@BancaCentraleArcadia"]
-
 # ==================== CES IMAGE ====================
 class CESImage:
     count = 0
@@ -469,7 +545,53 @@ class CESVideo:
         return None
 
     @classmethod
-    def generate_video(cls, prompt, style="cinematic", num_frames=4, fps=4, narration=None):
+    def clean_narration_text(cls, text):
+        """Pulisce il testo narrativo rimuovendo i tag di intestazione dell'AI"""
+        if not text:
+            return ""
+        # Rimuove intestazioni come "Narratore:", "Voce narrante:", ecc. e log di sicurezza come "User Safety:"
+        text = re.sub(r'(?i)^\s*(user safety|safety|narratore|narratrice|voce fuori campo|voce narrante|testo da recitare|testo|sceneggiatura|voiceover|audio)\s*[:\-]\s*\w*\n*', '', text)
+        text = text.strip().strip('"').strip("'").strip('«').strip('»')
+        # Rimuove testo tra parentesi quadre o tonde
+        text = re.sub(r'\[.*?\]', '', text)
+        text = re.sub(r'\(.*?\)', '', text)
+        return text.strip()
+
+    @classmethod
+    def generate_narration_script(cls, prompt, style):
+        """Genera un testo narrativo naturale in italiano di 10-12 secondi usando Gemini o fallback locale"""
+        system_instruction = (
+            "Sei un regista e sceneggiatore professionista. Scrivi un brevissimo testo narrativo o poetico in italiano "
+            "da recitare como voce fuori campo per un video cinematografico d'autore. "
+            "Il testo deve basarsi sul prompt dell'utente ma deve sembrare una narrazione o un dialogo reale e immersivo, "
+            "assolutamente NON una descrizione tecnica o letterale del prompt. "
+            "Usa un tono naturale ed emotivo. Massimo 20-25 parole (durata circa 10-12 secondi di recitazione lenta). "
+            "Scrivi ESCLUSIVAMENTE la frase da recitare, senza virgolette, indicazioni di scena, o commenti."
+        )
+        try:
+            llm_prompt = f"Prompt del video: '{prompt}' (Stile: {style})"
+            # Usiamo un tetto di token più ampio per evitare tagli
+            narration = AIClient.generate(f"{system_instruction}\n\n{llm_prompt}", max_tok=150)
+            if narration:
+                cleaned = cls.clean_narration_text(narration)
+                if len(cleaned) > 5:
+                    return cleaned
+        except:
+            pass
+        
+        # Fallback offline per prompt comuni o generici
+        prompt_clean = prompt.lower().strip()
+        if "gatto" in prompt_clean:
+            return "Un piccolo gatto gioca felice con il suo gomitolo di lana, tra movimenti lenti e sguardi curiosi."
+        if "aldo moro" in prompt_clean:
+            return "Il ritorno inaspettato di una figura storica, tra le ombre di un tempo che sembra essersi fermato."
+        if "uomo" in prompt_clean or "donna" in prompt_clean:
+            return "Due sguardi si incrociano nel silenzio di una strada affollata, cercando una direzione comune."
+            
+        return "Immagini sospese nel tempo, che catturano l'essenza più autentica di questa scena."
+
+    @classmethod
+    def generate_video(cls, prompt, style="cinematic"):
         if not prompt or len(prompt.strip()) < 3:
             return {"success": False, "error": "Descrivi la scena (minimo 3 parole)"}
         
@@ -483,139 +605,99 @@ class CESVideo:
         job_dir = VIDEO_FOLDER / job_id
         job_dir.mkdir(exist_ok=True)
         
-        frame_paths = []
-        base_seed = random.randint(100000, 899999)
-        
         styles = {
-            "cinematic": "cinematic scene, 4k, cinematic lighting, detailed, masterpiece",
-            "anime": "anime style, vibrant colors, clean animation lines, studio ghibli",
-            "realistic": "photorealistic, 8k, highly detailed, steady camera",
-            "artistic": "artistic painting, fluid motion, masterpiece",
+            "cinematic": "cinematic scene, 4k, highly detailed movie screenshot, professional cinematic color grading, masterpiece",
+            "anime": "anime style, vibrant colors, clean animation lines, studio ghibli, masterpiece key visual",
+            "realistic": "photorealistic, 8k, highly detailed, professional cinematography, master shot",
+            "artistic": "artistic oil painting, fluid motion brush strokes, fine art masterpiece",
         }
         style_prompt = styles.get(style, styles["cinematic"])
         
-        print(f"   ⠋ Avvio download fotogrammi con protezione anti-block...")
+        print(f"   ⠋ Avvio download fotogramma master ad alta definizione...")
         
-        for i in range(4):
-            motion = f"motion sequence, frame {i+1} of 4, movement progress {i/3:.1%}"
-            fp_text = f"{style_prompt}. {prompt}. {motion}, consistent environment, seamless motion"
-            encoded = urllib.parse.quote(fp_text[:500])
-            
-            current_seed = base_seed + (i * 313)
-            cache_bust = random.randint(1000, 9999)
-            
-            # FIX: Salvataggio con indice reale len(frame_paths)+1 invece di i+1.
-            # Se un frame fallisce, il successivo non lascia "buchi" di numerazione che romperebbero ffmpeg!
-            next_index = len(frame_paths) + 1
-            frame_path = job_dir / f"seq_{next_index:04d}.jpg"
-            
-            download_success = False
-            max_tentativi = 3
-            
-            for tentativo in range(max_tentativi):
-                try:
-                    if i > 0 or tentativo > 0:
-                        attesa = random.uniform(3.0, 5.5) + (tentativo * 3)
-                        print(f"      ⏳ Pausa strategica anti-429 per {attesa:.1f}s...")
-                        time.sleep(attesa)
-                    
-                    # === FIX DI FALLBACK ROBUSTO CONTRO GLI ERRORI HTTP 500 DI FLUX ===
-                    # Se il primo tentativo con flux fallisce con 500, proviamo con modelli più leggeri e stabili
-                    if tentativo == 0:
-                        model_param = "&model=flux"
-                    elif tentativo == 1:
-                        model_param = "&model=turbo"
-                        print(f"      🔄 [Tentativo {tentativo+1}] Cambio modello in 'turbo' per stabilità...")
-                    else:
-                        model_param = ""  # Default automatico di Pollinations
-                        print(f"      🔄 [Tentativo {tentativo+1}] Rimozione parametro modello per massima compatibilità...")
-                    
-                    url = f"https://image.pollinations.ai/prompt/{encoded}?width=768&height=432&nologo=true&seed={current_seed}&cb={cache_bust}{model_param}"
-                    
-                    req = urllib.request.Request(url, headers=cls.HEADERS)
-                    with urllib.request.urlopen(req, timeout=45) as response:
-                        with open(frame_path, 'wb') as out:
-                            while True:
-                                chunk = response.read(16384)
-                                if not chunk: break
-                                out.write(chunk)
-                    
-                    if frame_path.exists() and frame_path.stat().st_size > 15000:
-                        frame_paths.append(frame_path)
-                        print(f"      ✅ [Frame {len(frame_paths)}/4] Scaricato al tentativo {tentativo+1}")
-                        download_success = True
-                        break
-                        
-                except urllib.error.HTTPError as he:
-                    if he.code == 429:
-                        print(f"      ⚠️ Risposta 429 al tentativo {tentativo+1}. Riprovo...")
-                    elif he.code == 500:
-                        print(f"      ❌ Errore HTTP 500 al tentativo {tentativo+1}. Server sovraccarico, provo alternativa...")
-                    else:
-                        print(f"      ❌ Errore HTTP {he.code} al tentativo {tentativo+1}")
-                except Exception as e:
-                    print(f"      ❌ Errore/Timeout ({e}) al tentativo {tentativo+1}")
+        # Generiamo UN singolo master frame per garantire la coerenza totale di Sora/Veo
+        master_seed = random.randint(100000, 899999)
+        cache_bust = random.randint(1000, 9999)
+        
+        # Utilizziamo Flux per avere la massima qualità possibile
+        url = f"https://image.pollinations.ai/prompt/{urllib.parse.quote(style_prompt + '. ' + prompt)}?width=1280&height=720&nologo=true&seed={master_seed}&cb={cache_bust}&model=flux"
+        master_img_path = job_dir / "master.jpg"
+        
+        download_success = False
+        max_tentativi = 3
+        
+        for tentativo in range(max_tentativi):
+            try:
+                if tentativo > 0:
+                    attesa = random.uniform(2.0, 4.0)
+                    print(f"      ⏳ Pausa strategica anti-429 per {attesa:.1f}s...")
+                    time.sleep(attesa)
                 
-                if frame_path.exists():
-                    try: frame_path.unlink()
+                req = urllib.request.Request(url, headers=cls.HEADERS)
+                with urllib.request.urlopen(req, timeout=45) as response:
+                    with open(master_img_path, 'wb') as out:
+                        while True:
+                            chunk = response.read(16384)
+                            if not chunk: break
+                            out.write(chunk)
+                
+                if master_img_path.exists() and master_img_path.stat().st_size > 15000:
+                    print(f"      ✅ Fotogramma master scaricato con successo al tentativo {tentativo+1}!")
+                    download_success = True
+                    break
+            except Exception as e:
+                print(f"      ❌ Errore scaricamento master ({e}) al tentativo {tentativo+1}")
+                if master_img_path.exists():
+                    try: master_img_path.unlink()
                     except: pass
-            
-            if not download_success:
-                print(f"      💥 [Tentativo Frame {i+1}] Fallito definitivamente.")
-            
-            gc.collect()
-            
-        if len(frame_paths) < 2:
+                    
+        if not download_success:
             return {"success": False, "error": "Il server AI è sovraccarico o temporaneamente non raggiungibile. Riprova tra 1 minuto."}
-        
+            
         ffmpeg = cls._find_ffmpeg()
         if not ffmpeg:
             return {"success": False, "error": "FFmpeg non configurato."}
             
         video_temp = job_dir / "video_silent.mp4"
-        seq_pattern = str(job_dir / "seq_%04d.jpg").replace('\\', '/')
-        output_str = str(video_temp).replace('\\', '/')
         
-        # === EVITARE CRASH DI MEMORIA (OOM) ===
-        target_duration = 6.0
-        actual_frames = len(frame_paths)
-        stretch_factor = (target_duration * fps) / actual_frames if actual_frames > 0 else 6.0
-        
-        video_filter = (
-            f'scale=640:360,'
-            f'setpts={stretch_factor:.2f}*PTS,'
-            f'fps=24,'
-            f'fade=t=in:st=0:d=1,'
-            f'fade=t=out:st={target_duration - 1.0:.1f}:d=1'
+        # === SIMULAZIONE SORA/VEO FLUIDO CON CAM-SHAKE 3D (24 FPS - 12 SECONDI) ===
+        # Generiamo 288 frame totali (12 secondi a 24fps) applicando una camera wobble realistica
+        # e un'oscillazione di luce volumetrica. È leggerissimo per la RAM (soli 40MB di buffer).
+        motion_filter = (
+            "scale=1280:720,"
+            "zoompan=z='1.15+0.0005*on':d=288:x='(iw-iw/zoom)/2 + 5*sin(on/8)':y='(ih-ih/zoom)/2 + 4*cos(on/10)':s=640x360,"
+            "eq=brightness='0.02*sin(on/15)':contrast='1.0+0.01*cos(on/20)'"
         )
         
-        print(f"   ⚙️ FFmpeg sta assemblando il video fluido...")
+        print(f"   ⚙️ Rendering in corso (12 secondi, 24 fps, Handheld Cam Shake)...")
         cmd_video = [
             ffmpeg, '-y',
-            '-framerate', str(fps),
-            '-i', seq_pattern,
-            '-vf', video_filter,
+            '-loop', '1',
+            '-t', '12',
+            '-i', str(master_img_path),
+            '-vf', motion_filter,
             '-c:v', 'libx264',
             '-pix_fmt', 'yuv420p',
-            '-crf', '28',
-            '-preset', 'veryfast',
+            '-r', '24',
+            '-preset', 'ultrafast',
             '-threads', '1',
-            output_str
+            str(video_temp)
         ]
         
-        res = subprocess.run(cmd_video, capture_output=True, timeout=40)
+        res = subprocess.run(cmd_video, capture_output=True, timeout=45)
         if res.returncode != 0:
             print(f"❌ Errore FFmpeg: {res.stderr.decode('utf-8', errors='ignore')}")
-        
-        for fp in frame_paths:
-            try: fp.unlink()
-            except: pass
-        
-        if not video_temp.exists() or video_temp.stat().st_size < 5000:
-            return {"success": False, "error": "Errore durante la fluidificazione del video."}
+            return {"success": False, "error": "Errore durante il rendering del video fluido."}
             
-        print(f"   🎙️ Genero traccia vocale...")
-        if narration is None: narration = prompt
+        try: master_img_path.unlink()
+        except: pass
+        
+        if not video_temp.exists() or video_temp.stat().st_size < 100:
+            return {"success": False, "error": "Errore di codec nel file video temporaneo."}
+            
+        print(f"   🎙️ Genero traccia vocale intelligente d'autore...")
+        narration = cls.generate_narration_script(prompt, style)
+            
         audio_path = job_dir / "narration.mp3"
         
         try:
@@ -628,12 +710,12 @@ class CESVideo:
             
         final_path = job_dir / "video_final.mp4"
         if audio_path.exists():
-            print(f"   🔗 Unisco Audio + Video Fluido...")
+            print(f"   🔗 Unisco Audio + Video Fluido con sincronizzazione PTS...")
             cmd_merge = [
                 ffmpeg, '-y',
                 '-i', str(video_temp), '-i', str(audio_path),
                 '-c:v', 'copy', '-c:a', 'aac', '-map', '0:v:0', '-map', '1:a:0',
-                '-shortest', '-threads', '1', str(final_path)
+                '-threads', '1', str(final_path)
             ]
             subprocess.run(cmd_merge, capture_output=True, timeout=20)
         else:
@@ -649,13 +731,14 @@ class CESVideo:
         return {
             "success": True,
             "video_path": final_path,
-            "frame_count": 24,
+            "frame_count": 288,
             "fps": 24,
             "has_audio": final_path.exists(),
             "prompt": prompt,
-            "style": style
+            "style": style,
+            "generated_narration": narration
         }
-    
+
 # ==================== CLIENT AI ====================
 class AIClient:
     count = 0
@@ -694,8 +777,11 @@ class AIClient:
     @classmethod
     def _clean(cls, text):
         text = text.strip()
-        text = re.sub(r'(?i)^(okay|let me|dunque|allora|vediamo|analizzo|devo|i need|first|penso|credo|ecco).*?[:\.]\s*', '', text)
-        lines = [l for l in text.split('\n') if not re.match(r'(?i)^(okay|let me|dunque|quindi|devo|i need|the user|first)', l.strip())]
+        # Rimuove righe di "User Safety:" o metadati simili inseriti da API o proxy
+        text = re.sub(r'(?i)^User Safety:\s*\w+\s*\n?', '', text)
+        text = re.sub(r'(?i)^Safety:\s*\w+\s*\n?', '', text)
+        text = re.sub(r'(?i)^(okay|let me|dunque|allora|vediamo|analizzo|devo|i need|first|penso|credo|echo).*?[:\.]\s*', '', text)
+        lines = [l for l in text.split('\n') if not re.match(r'(?i)^(okay|let me|dunque|quindi|devo|i need|the user|first|user safety|safety)', l.strip())]
         return AliasResolver.resolve_all_names('\n'.join(lines).strip() if lines else text)
 
 class ArcadiaBot:
@@ -707,6 +793,10 @@ class ArcadiaBot:
         self.knowledge = KnowledgeBase(DATA_FOLDER)
         self.msgs = 0
         self.dups = 0
+        self.username = ""
+        self.id = 0
+        # Recupera subito le info fondamentali del bot in fase di avvio per massima robustezza
+        self.fetch_bot_info()
         gc.collect()
 
     def api(self, method, params=None):
@@ -721,16 +811,45 @@ class ArcadiaBot:
                 return json.loads(r.read().decode())
         except:
             return {"ok": False}
+
+    def fetch_bot_info(self):
+        r = self.api("getMe")
+        if r.get("ok"):
+            self.username = r['result'].get('username', '')
+            self.id = r['result'].get('id', 0)
+            print(f"ℹ️ Info bot caricate all'avvio: @{self.username} (ID: {self.id})")
+        else:
+            print("⚠️ Impossibile caricare le info del bot durante l'init!")
+    
+    def test(self):
+        r = self.api("getMe")
+        if r.get("ok"):
+            self.username = r['result'].get('username', '')
+            self.id = r['result'].get('id', 0)
+            print(f"✅ Bot attivo: @{self.username} (ID: {self.id})")
+            return True
+        return False
     
     def send(self, chat_id, text):
         if len(text) > 4000:
             text = text[:3990] + "..."
+            
+        # === SIMULAZIONE DIGITAZIONE UMANA (TYPING EFFECT) ===
+        typing_duration = min(len(text) * 0.02 + 0.4, 2.5)
+        
+        self.api("sendChatAction", {"chat_id": chat_id, "action": "typing"})
+        time.sleep(typing_duration)
+        
         return self.api("sendMessage", {"chat_id": chat_id, "text": text})
     
     def send_photo(self, chat_id, url, caption=None):
         p = {"chat_id": chat_id, "photo": url}
         if caption:
             p["caption"] = caption[:1024]
+            
+        self.api("sendChatAction", {"chat_id": chat_id, "action": "upload_photo"})
+        time.sleep(1.2)
+        
         return self.api("sendPhoto", p)
     
     def send_video_file(self, chat_id, video_path, caption=None):
@@ -760,6 +879,9 @@ class ArcadiaBot:
         gc.collect()
         
         try:
+            self.api("sendChatAction", {"chat_id": chat_id, "action": "upload_video"})
+            time.sleep(1.5)
+            
             req = urllib.request.Request(f"{self.base_url}/sendVideo", data=data,
                 headers={'Content-Type': f'multipart/form-data; boundary={boundary}'})
             with urllib.request.urlopen(req, timeout=60) as r:
@@ -768,6 +890,78 @@ class ArcadiaBot:
             print(f"⚠️ Upload: {e}")
             return {"ok": False}
     
+    def handle_image(self, chat_id, file_id, caption, user_id):
+        """Scarica l'immagine, la analizza con CESImageViewer e risponde."""
+        try:
+            # 1. Scarica il file
+            file_info = self.api("getFile", {"file_id": file_id})
+            if not file_info.get("ok"):
+                self.send(chat_id, "❌ Impossibile ottenere il file.")
+                return
+
+            file_path = file_info["result"]["file_path"]
+            file_url = f"https://api.telegram.org/file/bot{self.token}/{file_path}"
+
+            # Salva in temp
+            img_temp = TEMP_FOLDER / f"img_{user_id}_{int(time.time())}.jpg"
+            
+            # Scarica con timeout e gestione errori
+            req = urllib.request.Request(file_url, headers={'User-Agent': 'ArcadiaAI/1.0'})
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                with open(img_temp, 'wb') as f:
+                    f.write(resp.read())
+
+            # Verifica che il file sia stato scaricato correttamente
+            if not img_temp.exists() or img_temp.stat().st_size < 100:
+                self.send(chat_id, "❌ Il file immagine non è stato scaricato correttamente.")
+                img_temp.unlink(missing_ok=True)
+                return
+
+            # 2. Analizza con CESImageViewer
+            if HAS_IMAGE_VIEWER:
+                try:
+                    viewer = CESImageViewer()
+                    raw_description = viewer.analizza(str(img_temp))
+                except Exception as e:
+                    raw_description = f"❌ Errore durante l'analisi dell'immagine: {str(e)}"
+            else:
+                raw_description = "❌ CES Image Viewer non è disponibile. Assicurati che 'ces_image_viewer.py' sia nella stessa cartella e che OpenCV (opencv-python) sia installato."
+
+            # 3. Formatta con AI se disponibile
+            if raw_description.startswith("=== CES IMAGE VIEWER"):
+                # Costruisci il prompt per l'AI
+                if caption and len(caption) > 0:
+                    user_prompt = f"L'utente ha mandato una foto con la didascalia: '{caption}'. Ecco la descrizione tecnica dell'immagine:\n\n{raw_description}"
+                else:
+                    user_prompt = f"Ecco la descrizione tecnica di un'immagine inviata da un utente. Riscrivila in modo chiaro e amichevole:\n\n{raw_description}"
+                
+                system_prompt = """Sei un assistente che deve rendere comprensibile una descrizione tecnica di un'immagine. 
+                Traduci il linguaggio tecnico in una descrizione chiara, amichevole e scorrevole per un utente normale.
+                Mantieni tutti i dettagli importanti ma usa un tono colloquiale e piacevole.
+                Se l'utente ha fatto una domanda nella didascalia, rispondi anche a quella."""
+                
+                formatted = AIClient.generate(f"{system_prompt}\n\n{user_prompt}", max_tok=800)
+                if formatted:
+                    response = formatted
+                else:
+                    response = raw_description
+            else:
+                response = raw_description
+
+            # 4. Invia risposta
+            self.send(chat_id, response)
+
+            # 5. Pulizia
+            img_temp.unlink(missing_ok=True)
+
+        except urllib.error.URLError as e:
+            self.send(chat_id, f"❌ Errore di rete durante il download dell'immagine: {str(e)}")
+        except Exception as e:
+            self.send(chat_id, f"❌ Errore durante l'analisi dell'immagine: {str(e)}")
+            print(f"❌ Errore in handle_image: {e}")
+            import traceback
+            traceback.print_exc()
+
     def process_update(self, update):
         update_id = update.get("update_id", 0)
         if self.db.is_processed(update_id):
@@ -778,6 +972,7 @@ class ArcadiaBot:
         
         msg = update["message"]
         chat_id = msg["chat"]["id"]
+        chat_type = msg["chat"].get("type", "private")
         user_id = msg["from"]["id"]
         msg_date = msg.get("date", 0)
         user_name = msg["from"].get("first_name", "Utente")
@@ -786,19 +981,118 @@ class ArcadiaBot:
         self.msgs += 1
         
         text = msg.get("text", "").strip()
+        
+        # ==================== GESTIONE IMMAGINI ====================
+        if "photo" in msg:
+            # Ottieni il file_id della foto (la più grande disponibile)
+            photo = msg["photo"][-1]  # ultimo elemento = risoluzione massima
+            file_id = photo["file_id"]
+            caption = msg.get("caption", "").strip()
+
+            # Decide se analizzare automaticamente o solo su richiesta
+            if not caption or any(k in caption.lower() for k in ["analizza", "immagine", "foto", "vedi", "descrivi", "guarda", "che foto", "come sono"]):
+                self.handle_image(chat_id, file_id, caption, user_id)
+                return  # non elaborare ulteriormente il testo
+        
         if not text:
             return
         
-        # ==================== COMANDI ====================
-        if text == "/start":
+        is_group = chat_type in ["group", "supergroup"]
+        bot_username = self.username.lower() if self.username else ""
+        
+        # --- CONTROLLO RISPOSTA DIRETTA AL BOT (REPLY TO SELF) ---
+        is_reply_to_bot = False
+        if "reply_to_message" in msg:
+            reply_to = msg["reply_to_message"]
+            reply_to_from = reply_to.get("from", {})
+            reply_to_username = reply_to_from.get("username", "")
+            reply_to_id = reply_to_from.get("id", 0)
+            
+            # Controlla tramite ID univoco o username se l'utente ha risposto ad ArcadiaAI
+            if (self.id and reply_to_id == self.id) or (bot_username and reply_to_username.lower() == bot_username):
+                is_reply_to_bot = True
+
+        # Elenco dei comandi ufficialmente supportati dal bot
+        registered_commands = [
+            "/start", "/aiuto", "/help", "/videohelp", "/video",
+            "/codice_sorgente", "/buy_bypass", "/create_vip",
+            "/redeem", "/img", "/stats", "/cerca",
+            "/vip_status", "/my_vip_codes", "/ai"
+        ]
+        
+        # Normalizza il comando: rimuovi il tag @botname
+        text_lower = text.lower()
+        proc_text = text
+        
+        # Rimuovi il tag del bot dal comando
+        if bot_username:
+            # Rimuovi @botusername da qualsiasi parte del testo
+            proc_text = re.sub(r'(?i)@' + re.escape(bot_username), '', proc_text).strip()
+            # Rimuovi anche @botusername dai comandi (es. /ai@bot -> /ai)
+            proc_text = re.sub(r'(/\w+)@' + re.escape(bot_username), r'\1', proc_text, flags=re.IGNORECASE)
+        
+        # Estrai il comando dal testo processato
+        first_word = proc_text.split()[0].lower() if proc_text else ""
+        
+        # Controlla se è un comando registrato
+        is_command = first_word in registered_commands
+        
+        # Controlla se il bot è stato taggato (mentre il testo contiene @botusername)
+        is_mentioned = bot_username and f"@{bot_username}" in text.lower()
+        
+        # ================ LOG DI DEBUG ================
+        print(f"📥 [{chat_type.upper()}] Messaggio da {user_name} (ID: {user_id}): '{text}'")
+        print(f"   ↳ Processato: '{proc_text}' | first_word: '{first_word}'")
+        if is_reply_to_bot:
+            print("   ↳ 💬 Risposta (reply) diretta al bot.")
+        if is_command:
+            print(f"   ↳ ✅ Riconosciuto come comando: {first_word}")
+        if is_mentioned:
+            print(f"   ↳ ✅ Taggato: @{bot_username}")
+            
+        # ================ FILTRO DI GRUPPO ================
+        if is_group:
+            # In un gruppo, rispondi solo se:
+            # - È un comando registrato
+            # - Il bot è stato taggato
+            # - È una risposta a un messaggio del bot
+            if not (is_command or is_mentioned or is_reply_to_bot):
+                print("   🚫 Ignorato (Nessun comando, tag o reply esplicita).")
+                return
+
+        # ================ CREA LA QUERY AI ================
+        ai_query = proc_text
+        
+        # Se il comando è /ai, estrai la query dopo il comando
+        if first_word == "/ai":
+            # Rimuovi il comando /ai dalla query
+            ai_query = proc_text[3:].strip()  # /ai è lungo 3 caratteri
+            if not ai_query:
+                # Se non c'è query dopo /ai, chiedi cosa vuole
+                self.send(chat_id, "💬 Cosa vuoi chiedermi? Usa `/ai <domanda>`")
+                return
+        
+        # Rimuovi il tag del bot dalla query (se presente)
+        if bot_username:
+            ai_query = re.sub(r'(?i)@' + re.escape(bot_username), '', ai_query).strip()
+        
+        # Pulisci la query da spazi multipli
+        ai_query = re.sub(r'\s+', ' ', ai_query).strip()
+        
+        # ==================== GESTIONE DEI COMANDI ====================
+        
+        # ---- COMANDO /start ----
+        if first_word == "/start":
             dev = "🔓 Dev" if user_id == DEVELOPER_USER_ID else ""
-            self.send(chat_id, f"👋 Ciao {user_name}! ArcadiaAI.\n\n🎬 /video [desc] - Video AI diretto\n🎨 /img [desc] - Immagine\n🎫 /vip [codice] - Riscatta codice VIP\n💬 Fammi una domanda!\n📋 /aiuto{(' ' + dev) if dev else ''}")
+            self.send(chat_id, f"👋 Ciao {user_name}! ArcadiaAI.\n\n🎬 /video [desc] - Video AI diretto\n🎨 /img [desc] - Immagine\n🎫 /vip [codice] - Riscatta codice VIP\n🖼️ Invia una foto con 'analizza' per descriverla\n💬 Fammi una domanda!\n📋 /aiuto{(' ' + dev) if dev else ''}")
             return
         
-        elif text in ["/aiuto", "/help"]:
+        # ---- COMANDO /aiuto o /help ----
+        elif first_word in ["/aiuto", "/help"]:
             self.send(chat_id, "🎬 **Comandi ArcadiaAI**\n\n"
                 "🎬 /video [stile] [descrizione] - Video AI\n"
                 "🎨 /img [desc] - Immagine\n"
+                "🖼️ Invia una foto con 'analizza' per descriverla\n"
                 "🎫 /vip [codice] - Riscatta codice VIP\n"
                 "👨‍💻 /codice_sorgente - Link alla repository\n"
                 "📝 /telegraph [tema] - Articolo\n"
@@ -808,10 +1102,14 @@ class ArcadiaBot:
                 "**VIP:**\n"
                 "/vip_status - Stato VIP\n"
                 "/my_vip_codes - I tuoi codici (Dev)\n\n"
-                "💬 Fammi una domanda su micronazioni, Leonia, Arcadia, Lumenaria!")
+                "💬 Fammi una domanda su micronazioni, Leonia, Arcadia, Lumenaria!\n\n"
+                "📌 **Per farmi una domanda in un gruppo:**\n"
+                "• Usa `/ai <domanda>`\n"
+                "• Oppure taggami con `@{self.username} <domanda>`")
             return
         
-        elif text == "/videohelp":
+        # ---- COMANDO /videohelp ----
+        elif first_word == "/videohelp":
             self.send(chat_id, "🎬 **CES Video** - Text-to-Video Diretto\n\n"
                 "/video [stile] [descrizione]\n"
                 "Stili: cinematic, anime, realistic, artistic\n\n"
@@ -820,15 +1118,71 @@ class ArcadiaBot:
                 "🏦 /buy_bypass per illimitati")
             return
         
-        # ==================== VIDEO ====================
-        elif text.startswith("/video"):
-            args = text[6:].strip()
+        # ---- COMANDO /ai ----
+        elif first_word == "/ai":
+            # Se non c'è query, già gestito sopra
+            if not ai_query:
+                return
+            
+            print(f"   🤖 Query AI: '{ai_query}'")
+            self.send(chat_id, "🔍 Cerco nelle mie conoscenze...")
+            
+            # 1. Cerca nei file .txt
+            search_results = self.knowledge.search(ai_query, max_results=10)
+            
+            # 2. Costruisci il contesto
+            if search_results:
+                context_parts = []
+                for r in search_results[:5]:
+                    context_parts.append(f"📖 Da {r['file']}:\n{r['context']}")
+                context = "\n\n".join(context_parts)
+                print(f"✅ Trovati {len(search_results)} risultati rilevanti per: {ai_query}")
+            else:
+                context = "Nessun risultato trovato nei file di conoscenza."
+                print(f"⚠️ Nessun risultato utile per: {ai_query}")
+            
+            # 3. Prepara il prompt
+            system = f"""{IDENTITY_PROMPT}
+
+**CONOSCENZA DAI FILE LOCALI (USA QUESTE INFORMAZIONI CON MASSIMA PRIORITÀ):**
+{context}
+
+**REGOLA FONDAMENTALE DI RISPOSTA:**
+- Se l'informazione è presente nel testo qui sopra, usala obbligatoriamente per rispondere in modo preciso e dettagliato.
+- Se l'informazione non è presente nel testo, usa la tua conoscenza predefinita se ritieni sia affidabile, altrimenti dillo chiaramente.
+- CITA LA FONTE (il nome del file .txt) esclusivamente una sola volta in fondo alla risposta, formattata como `[Fonte: nome_file.txt]`.
+
+**DOMANDA DELL'UTENTE:**
+{ai_query}
+
+**RISPOSTA:**"""
+            
+            # 4. Genera con l'AI
+            answer = AIClient.generate(system, max_tok=1200)
+            
+            if answer:
+                self.send(chat_id, answer.strip())
+            else:
+                # Fallback: cerca su internet
+                self.send(chat_id, "🌐 Cerco su internet...")
+                raw_results = WebSearch.search(ai_query, n=4)
+                if raw_results:
+                    msg = f"🔍 Risultati per '{ai_query}':\n\n"
+                    for r in raw_results:
+                        msg += f"• {r['title']}\n  {r['snippet'][:150]}...\n  🔗 {r['url']}\n\n"
+                    self.send(chat_id, msg[:4000])
+                else:
+                    self.send(chat_id, "❌ Non ho trovato informazioni su questo argomento.")
+            return
+        
+        # ---- COMANDO /video ----
+        elif first_word == "/video":
+            args = proc_text[6:].strip()
             if not args:
                 self.send(chat_id, "🎬 /video [stile] [descrizione]\nStili: cinematic, anime, realistic, artistic")
                 return
             
             try:
-                # SPOSTATO DENTRO IL TRY-EXCEPT: previene blocchi se ci sono crash di database o unpacking!
                 can_process, message, pos = video_limiter.can_process(user_id, self.db)
                 if not can_process:
                     self.send(chat_id, message)
@@ -837,9 +1191,9 @@ class ArcadiaBot:
                 styles = ["cinematic", "anime", "realistic", "artistic"]
                 style = "cinematic"
                 prompt = args
-                first_word = args.split()[0].lower() if args.split() else ""
-                if first_word in styles:
-                    style = first_word
+                first_word_arg = args.split()[0].lower() if args.split() else ""
+                if first_word_arg in styles:
+                    style = first_word_arg
                     prompt = ' '.join(args.split()[1:])
                 
                 if not prompt:
@@ -854,7 +1208,7 @@ class ArcadiaBot:
                 if result["success"]:
                     self.db.mark_video_generated(user_id)
                     count = self.db.get_video_count(user_id)
-                    caption = f"🎬 {result['prompt'][:200]}\n🎥 {style} | #{count}"
+                    caption = f"🎬 {result['generated_narration']}\n🎥 {style} | #{count}"
                     
                     video_result = self.send_video_file(chat_id, result["video_path"], caption)
                     if not video_result.get("ok"):
@@ -867,31 +1221,29 @@ class ArcadiaBot:
                 else:
                     self.send(chat_id, f"⚠️ {result['error']}")
             except Exception as video_err:
-                # Invia l'errore direttamente in chat per evitare che il bot rimanga in silenzio in caso di crash!
                 self.send(chat_id, f"❌ Errore imprevisto durante l'elaborazione del video: {str(video_err)}")
             finally:
                 video_limiter.finish(user_id)
             return
-            
-        elif text == "/codice_sorgente":
-             self.send(chat_id, "📂 Codice sorgente: https://github.com/Mirko-linux/ArcadiaAI-new")
-             return
-        elif text == "Licenza":
-             self.send(chat_id, "Licenza: https://github.com/Mirko-linux/ArcadiaAI-new/blob/main/LICENSE")
-             return
-        # ==================== BYPASS ====================
-        elif text == "/buy_bypass":
+        
+        # ---- COMANDO /codice_sorgente ----
+        elif first_word == "/codice_sorgente":
+            self.send(chat_id, "📂 Codice sorgente: https://github.com/Mirko-linux/ArcadiaAI-new")
+            return
+        
+        # ---- COMANDO /buy_bypass ----
+        elif first_word == "/buy_bypass":
             prices = "\n".join([f"• {i['name']}: {i['arc']} ARC" for i in BYPASS_PRICES.values()])
             self.send(chat_id, f"👋 Scegli come supportarci:\n\n{prices}\n\nUsa /buy_bypass [nome] per procedere!")
             return
         
-        # ==================== COMANDI VIP ====================
-        elif text.startswith("/create_vip "):
+        # ---- COMANDO /create_vip ----
+        elif first_word == "/create_vip":
             if user_id != DEVELOPER_USER_ID:
                 self.send(chat_id, "❌ Solo lo sviluppatore può creare codici VIP.")
                 return
             
-            parts = text[11:].strip().split()
+            parts = proc_text[11:].strip().split()
             
             if len(parts) < 2:
                 self.send(chat_id,
@@ -913,8 +1265,9 @@ class ArcadiaBot:
                 self.send(chat_id, f"❌ Errore durante la creazione: {str(e)}")
             return
         
-        elif text.startswith("/redeem "):
-            code = text[8:].strip().upper()
+        # ---- COMANDO /redeem ----
+        elif first_word == "/redeem":
+            code = proc_text[7:].strip().upper()
             if not code:
                 self.send(chat_id, "🎟️ Specifica il codice da riscattare! Usa `/redeem CODICE`")
                 return
@@ -925,10 +1278,10 @@ class ArcadiaBot:
             else:
                 self.send(chat_id, f"❌ {message}")
             return
-            
-        # ==================== ALTRI COMANDI ====================
-        elif text.startswith("/img"):
-            p = text[4:].strip()
+        
+        # ---- COMANDO /img ----
+        elif first_word == "/img":
+            p = proc_text[4:].strip()
             if p:
                 r = CESImage.generate(p)
                 if r["success"]:
@@ -937,47 +1290,83 @@ class ArcadiaBot:
                     self.send(chat_id, f"⚠️ {r['error']}")
             return
         
-        elif text == "/stats":
+        # ---- COMANDO /stats ----
+        elif first_word == "/stats":
             mem = self._mem()
-            self.send(chat_id, f"💬 {self.msgs} | 🤖 {AIClient.count} | 🎨 {CESImage.count} | 🎬 {CESVideo.count} | 🧠 {mem:.1f}MB")
+            self.send(chat_id, f"💬 {self.msgs} | 🤖 {AIClient.count} | 🎨 {CESImage.count} | {CESVideo.count} | 🧠 {mem:.1f}MB")
             return
         
-        # ==================== RICERCA WEB ====================
-        elif text.startswith("/cerca "):
-            query = text[7:].strip()
-            if query:
-                self.send(chat_id, f"🔍 Cerco '{query}'...")
-                results = WebSearch.search(query)
-                if results:
-                    self.send(chat_id, "🌐 **Risultati:**\n\n" + "\n\n".join(results[:3]))
-                else:
-                    self.send(chat_id, "❌ Nessun risultato trovato.")
+        # ---- COMANDO /cerca ----
+        elif first_word == "/cerca":
+            query = proc_text[7:].strip()
+            if not query:
+                self.send(chat_id, "🔍 /cerca [argomento] - Cosa vuoi cercare?")
+                return
+                
+            self.send(chat_id, f"🔍 Cerco '{query}'...")
+            raw_results = WebSearch.search(query, n=4)
+            
+            if not raw_results:
+                self.send(chat_id, "❌ Nessun risultato trovato sul web.")
+                return
+                
+            context_parts = []
+            urls = []
+            
+            for i, r in enumerate(raw_results, 1):
+                context_parts.append(f"Fonte {i}: {r['title']} - {r['snippet']}")
+                urls.append(f"- {r['url']}")
+                
+            search_context = "\n".join(context_parts)
+            
+            synthesis_prompt = (
+                f"Sei un assistente di ricerca. Basandoti ESCLUSIVAMENTE sui seguenti risultati web, "
+                f"fornisci una risposta sintetica e diretta alla domanda dell'utente: '{query}'. "
+                f"Non inventare informazioni. Cita le fonti usando [1], [2], ecc.\n\n"
+                f"RISULTATI WEB:\n{search_context}\n\n"
+                f"RISPOSTA SINTETICA:"
+            )
+            
+            answer = AIClient.generate(synthesis_prompt, max_tok=400)
+            
+            if answer:
+                final_msg = f"🔍 **Risultati per '{query}':**\n\n{answer.strip()}\n\n📎 Fonti:\n" + "\n".join(urls[:3])
+                self.send(chat_id, final_msg)
+            else:
+                msg = f"🔍 Risultati per '{query}':\n\n"
+                for r in raw_results:
+                    msg += f"• {r['title']}\n  {r['snippet'][:150]}...\n  🔗 {r['url']}\n\n"
+                self.send(chat_id, msg)
             return
-        
+
+        # ==================== GESTIONE MESSAGGIO VUOTO ====================
+        if not ai_query:
+            if is_group:
+                self.send(chat_id, f"Ciao {user_name}! Per farmi una domanda usa il comando `/ai <domanda>` oppure taggami scrivendo `@{self.username} <domanda>`.")
+            return
+
         # ==================== RISPOSTE PREDEFINITE ====================
-        predefined = get_predefined_response(text)
+        predefined = get_predefined_response(ai_query)
         if predefined:
             self.send(chat_id, predefined)
             return
         
-        # ==================== AI CON KNOWLEDGE BASE ====================
+        # ==================== AI CON KNOWLEDGE BASE (per messaggi senza comando) ====================
+        # Questo viene eseguito solo in privato o se il bot è stato taggato
         self.send(chat_id, "🔍 Cerco nelle mie conoscenze...")
         
-        # 1. Cerca nei file .txt usando il motore ottimizzato (Stemmer + Parola Intera)
-        search_results = self.knowledge.search(text, max_results=10)
+        search_results = self.knowledge.search(ai_query, max_results=10)
         
-        # 2. Costruisci il contesto dai risultati trovati
         if search_results:
             context_parts = []
             for r in search_results[:5]:
                 context_parts.append(f"📖 Da {r['file']}:\n{r['context']}")
             context = "\n\n".join(context_parts)
-            print(f"✅ Trovati {len(search_results)} risultati rilevanti per: {text}")
+            print(f"✅ Trovati {len(search_results)} risultati rilevanti per: {ai_query}")
         else:
             context = "Nessun risultato trovato nei file di conoscenza."
-            print(f"⚠️ Nessun risultato utile per: {text}")
+            print(f"⚠️ Nessun risultato utile per: {ai_query}")
         
-        # 3. Prepara il prompt strutturato per l'AI
         system = f"""{IDENTITY_PROMPT}
 
 **CONOSCENZA DAI FILE LOCALI (USA QUESTE INFORMAZIONI CON MASSIMA PRIORITÀ):**
@@ -985,28 +1374,28 @@ class ArcadiaBot:
 
 **REGOLA FONDAMENTALE DI RISPOSTA:**
 - Se l'informazione è presente nel testo qui sopra, usala obbligatoriamente per rispondere in modo preciso e dettagliato.
-- Se l'informazione non è presente nel testo, usa la tua conoscenza predefinita (in particolare i fondatori delle micronazioni presenti nel tuo prompt di sistema) se ritieni sia affidabile, altrimenti dillo chiaramente.
-- CITA LA FONTE (il nome del file .txt) esclusivamente una sola volta in fondo alla risposta, formattata come `[Fonte: nome_file.txt]`.
-- Non citare la fonte se non hai usato i dati provenienti dai file locali.
+- Se l'informazione non è presente nel testo, usa la tua conoscenza predefinita se ritieni sia affidabile, altrimenti dillo chiaramente.
+- CITA LA FONTE (il nome del file .txt) esclusivamente una sola volta in fondo alla risposta, formattata como `[Fonte: nome_file.txt]`.
 
 **DOMANDA DELL'UTENTE:**
-{text}
+{ai_query}
 
 **RISPOSTA:**"""
         
-        # 4. Genera con l'AI Client (Gemini o OpenRouter)
-        answer = AIClient.generate(system, max_tok=500)
+        answer = AIClient.generate(system, max_tok=1200)
         
         if answer:
             self.send(chat_id, answer.strip())
         else:
-            # Fallback: cerca su internet
             self.send(chat_id, "🌐 Cerco su internet...")
-            web_results = WebSearch.search(text)
-            if web_results:
-                self.send(chat_id, "🌐 **Trovato online:**\n\n" + "\n\n".join(web_results[:2]))
+            raw_results = WebSearch.search(ai_query, n=4)
+            if raw_results:
+                msg = f"🔍 Risultati per '{ai_query}':\n\n"
+                for r in raw_results:
+                    msg += f"• {r['title']}\n  {r['snippet'][:150]}...\n  🔗 {r['url']}\n\n"
+                self.send(chat_id, msg[:4000])
             else:
-                self.send(chat_id, "❌ Non ho trovato informazioni specifiche su questo argomento.")
+                self.send(chat_id, "❌ Non ho trovato informazioni su questo argomento.")
         
         if self.msgs % 10 == 0:
             gc.collect()
@@ -1019,15 +1408,13 @@ class ArcadiaBot:
         except:
             return -1
     
-    def test(self):
-        r = self.api("getMe")
-        if r.get("ok"):
-            print(f"✅ Bot: @{r['result']['username']}")
-            return True
-        return False
-    
     def run_polling(self):
-        print("\n🔄 Avvio long polling...")
+        print("\n" + "="*60)
+        print("🤖 ArcadiaAI - Versione Corretta con CES Image Viewer")
+        print("💾 Supporto robusto e pulizia metadati attiva")
+        print("🖼️ Analisi immagini integrata!")
+        print("📌 /ai funziona in gruppi e supergruppi!")
+        print("="*60 + "\n")
         self.api("deleteWebhook")
         last_id = 0
         while True:
@@ -1167,11 +1554,9 @@ class KnowledgeBase:
         
         for w in words:
             if w not in self.STOPWORDS and len(w) > 2:
-                # 1. Salva la parola intera
                 term_freqs[w] += 1
                 stems.append(w)
                 
-                # 2. Salva lo stem (se diverso)
                 stem = self.stem_word(w)
                 if stem != w:
                     term_freqs[stem] += 1
@@ -1195,9 +1580,7 @@ class KnowledgeBase:
         query_stems = []
         for w in query_words:
             if w not in self.STOPWORDS and len(w) > 2:
-                # Cerca sia la parola intera
                 query_stems.append(w)
-                # Sia lo stem (se diverso)
                 stem = self.stem_word(w)
                 if stem != w:
                     query_stems.append(stem)
@@ -1223,7 +1606,7 @@ class KnowledgeBase:
             if len(matched_stems) > 1:
                 ratio = len(matched_stems) / len(query_stems)
                 score *= (1.5 + ratio * 2.0)
-                
+            
             if chunk['word_count'] > 0:
                 score /= (0.8 + 0.2 * (chunk['word_count'] / 200.0))
                 
@@ -1252,52 +1635,71 @@ class KnowledgeBase:
         
         return None
 
+# ==================== WEB SEARCH POTENZIATO ====================
 class WebSearch:
     @staticmethod
-    def search(query, n=3):
+    def search(query, n=4):
+        """Ricerca su DuckDuckGo con parsing robusto e pulizia HTML"""
         results = []
         try:
-            # Browser Emulation Headers potentiati per aggirare i blocchi temporanei di DuckDuckGo
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                'Accept-Language': 'it-IT,it;q=0.8,en-US;q=0.5,en;q=0.3',
-                'Referer': 'https://duckduckgo.com/'
-            }
+            encoded_q = urllib.parse.quote_plus(query)
             req = urllib.request.Request(
-                f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(query)}",
-                headers=headers
+                f"https://html.duckduckgo.com/html/?q={encoded_q}",
+                headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
             )
-            with urllib.request.urlopen(req, timeout=10) as r:
-                html = r.read().decode('utf-8')
-            for snippet in re.findall(r'<a class="result__snippet"[^>]*>(.*?)</a>', html, re.DOTALL)[:n]:
-                clean = re.sub(r'<[^>]+>', '', snippet).strip()
-                if clean:
-                    results.append(clean[:300])
+            with urllib.request.urlopen(req, timeout=8) as r:
+                html = r.read().decode('utf-8', errors='ignore')
+                
+                # Parsing migliorato: cerca blocchi risultato completi
+                blocks = re.findall(r'<div class="result__body">.*?</div>', html, re.DOTALL)
+                
+                for block in blocks[:n]:
+                    title_match = re.search(r'class="result__a"[^>]*>(.*?)</a>', block, re.DOTALL)
+                    snippet_match = re.search(r'class="result__snippet"[^>]*>(.*?)</a>', block, re.DOTALL)
+                    
+                    if title_match and snippet_match:
+                        title = re.sub(r'<[^>]+>', '', title_match.group(1)).strip()
+                        snippet = re.sub(r'<[^>]+>', '', snippet_match.group(1)).strip()
+                        
+                        # Estrai URL dal titolo (spesso nascosto nel tag <a>)
+                        url_match = re.search(r'href=["\']([^"\']+)', title_match.group(0))
+                        url = url_match.group(1) if url_match else ""
+                        
+                        if len(snippet) > 20:  # Filtra snippet vuoti o troppo corti
+                            results.append({
+                                "title": title,
+                                "snippet": snippet,
+                                "url": url
+                            })
         except Exception as e:
             print(f"⚠️ Errore WebSearch: {e}")
-            pass
+            
         return results
-
+    
 def main():
     print("\n" + "="*60)
     print("🤖 ArcadiaAI - Versione Corretta per Database /data")
     print("💾 Supporto Stemming + Parola Intera")
+    print("🖼️ Analisi immagini con CES Image Viewer integrata")
+    print("📌 /ai funziona in gruppi e supergruppi!")
     print("📜 Licenza: MPL 2.0")
     print("="*60 + "\n")
-    
     bot = ArcadiaBot()
     if not bot.test():
         sys.exit(1)
     
     print(f"✅ Pronto! RAM: {bot._mem():.1f}MB")
     print(f"📚 Risposte predefinite caricate: {len(RISPOSTE_PREDEFINITE)}")
-    print(f"🔍 Trigger configurati: {len(TRIGGER_PHRASES)}\n")
+    print(f"🔍 Trigger configurati: {len(TRIGGER_PHRASES)}")
+    print(f"🖼️ CES Image Viewer disponibile: {HAS_IMAGE_VIEWER}")
+    print("\n")
     
     try:
         bot.run_polling()
+    except KeyboardInterrupt:
+        print("\n👋 Spegnimento bot eseguito correttamente.")
     except Exception as e:
-        print(f"\n❌ {e}")
+        print(f"\n❌ Errore critico: {e}")
         bot.db.close()
         sys.exit(1)
 
