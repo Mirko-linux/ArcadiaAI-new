@@ -76,7 +76,7 @@ for alias, real_name in WIKIALIAS.items():
     if alias != real_name:
         REAL_TO_ALIAS[real_name].append(alias)
 
-# ==================== IDENTITY PROMPT ====================
+# ==================== IDENTITY PROMPT POTENZIATO ====================
 IDENTITY_PROMPT = """Sei **ArcadiaAI**, un assistente intelligente open-source creato da Mirko Yuri Donato. 
 Licenza: MPL 2.0.
 
@@ -165,12 +165,14 @@ RISPOSTE_PREDEFINITE = {
     "Chi è Giuseppe Blando?": "Giuseppe Blando è un cittadino di Arcadia, attuale Presidente della Repubblica",
     "cosa sono i cookie": "I cookie sono piccoli file di testo che i siti web o l'applicazioni memorizzano sul tuo computer o sessione per ricordare informazioni sulle deine visite. Possono essere utilizzati per tenere traccia delle tue preferenze, autenticarti e migliorare l'esperienza utente.",
     
+    # NUOVE RISPOSTE PREDEFINITE PER I FONDATORI E DEFINIZIONI SPECIFICHE
     "chi ha fondato lumenaria": "La Repubblica di Lumenaria è stata fondata da Filippo Zanetti il 4 febbraio del 2020.",
     "chi ha fondato arcadia": "La Repubblica di Arcadia è stata fondata da Andrea Lazarev l'11 dicembre del 2021.",
     "chi ha fondato leonia": "Leonia è stata fondata da Carlo Cesare Orlando (all'epoca noto como Davide Leone) nel 2019.",
     "qual è la forma peggiore di micronazionalismo": "La forma peggiore di micronazionalismo è l'idionazione. Si tratta di un'entità fondata da una singola persona che si autoproclama leader di uno Stato immaginario senza alcun seguito reale, interazione sociale autentica o vera produzione culturale, agendo unicamente per egocentrismo."
 }
 
+# TRIGGER PER LE RISPOSTE PREDEFINITE
 TRIGGER_PHRASES = {
     "chi sei": ["chi sei", "chi sei tu", "tu chi sei", "presentati", "come ti chiami", "qual è il tuo nome"],
     "cosa sai fare": ["cosa sai fare", "cosa puoi fare", "funzionalità", "capacità", "a cosa servi", "in cosa puoi aiutarmi"],
@@ -208,6 +210,8 @@ TRIGGER_PHRASES = {
     "sai usare google": ["sai usare google", "puoi usare google"],
     "cosa sono i cookie": ["cosa sono i cookie", "cookie", "definizione cookie"],
     "Chi è Giuseppe Blando?": ["chi è giuseppe blando", "chi è Joey bland"],
+    
+    # TRIGGER DIRETTI DEI FONDATORI E QUERY DI PREGIO
     "chi ha fondato lumenaria": ["chi ha fondato lumenaria", "fondatore di lumenaria", "chi è il fondatore di lumenaria", "fondatore lumenaria"],
     "chi ha fondato arcadia": ["chi ha fondato arcadia", "fondatore di arcadia", "chi è il fondatore di arcadia", "fondatore arcadia"],
     "chi ha fondato leonia": ["chi ha fondato leonia", "fondatore di leonia", "chi è il fondatore di leonia", "fondatore leonia"],
@@ -215,9 +219,11 @@ TRIGGER_PHRASES = {
 }
 
 def vary_response(text):
+    """Modifica in modo casuale ed elegante le risposte predefinite a livello locale (senza chiamate API)"""
     if not text:
         return text
     
+    # Mappatura dei sinonimi alternativi per spezzare la monotonia
     synonyms = [
         ("chatbot libero", "assistente virtuale open source"),
         ("chatbot open source", "software libero e aperto"),
@@ -235,23 +241,45 @@ def vary_response(text):
         if word in modified_text and random.random() < 0.6:
             modified_text = modified_text.replace(word, replacement)
             
-    intros = ["", "allora, ", "guarda, ", "in pratica ", "ti spiego: ", "guarda che "]
-    outros = ["", " spero ti vada bene!", " comunque se hai altre domande chiedi pure eh!", " fammi sapere se è tutto chiaro!", " spero ti sia d'aiuto! 🙌", " ciaoo!"]
+    # Varianti di introduzione colloquiali (filler words tipiche di un umano)
+    intros = [
+        "",
+        "allora, ",
+        "guarda, ",
+        "in pratica ",
+        "ti spiego: ",
+        "guarda che "
+    ]
     
+    # Varianti di chiusura tipiche di una persona reale che scrive velocemente
+    outros = [
+        "",
+        " spero ti vada bene!",
+        " comunque se hai altre domande chiedi pure eh!",
+        " fammi sapere se è tutto chiaro!",
+        " spero ti sia d'aiuto! 🙌",
+        " ciaoo!"
+    ]
+    
+    # Applica filtri di formattazione solo se la risposta è discorsiva e non contiene link
     if len(modified_text) > 25 and "https://" not in modified_text:
+        # Modifica opzionale del punto finale per simulare chat veloce (spesso non usiamo il punto fermo finale)
         if modified_text.endswith("."):
             rand_val = random.random()
             if rand_val < 0.4:
-                modified_text = modified_text[:-1] + ""
+                modified_text = modified_text[:-1] + ""  # Rimuove il punto finale
             elif rand_val < 0.7:
-                modified_text = modified_text[:-1] + "!"
+                modified_text = modified_text[:-1] + "!"  # Sostituisce con esclamazione
             elif rand_val < 0.85:
-                modified_text = modified_text[:-1] + "..."
+                modified_text = modified_text[:-1] + "..."  # Aggiunge suspense
                 
+        # Aggiungi intro e outro casuali
         intro = random.choice(intros) if random.random() < 0.5 else ""
         outro = random.choice(outros) if random.random() < 0.5 else ""
         
+        # Evitiamo doppie introduzioni formali o maiuscole fuori posto
         if intro:
+            # Rendi minuscola la prima letter della risposta originale per legarla bene alla parola di riempimento
             if modified_text and modified_text[0].isupper():
                 modified_text = modified_text[0].lower() + modified_text[1:]
                 
@@ -260,6 +288,7 @@ def vary_response(text):
     return modified_text
 
 def get_predefined_response(text):
+    """Cerca se il testo corrisponde a una risposta predefinita con matching ESATTO e applica la variazione"""
     if not text:
         return None
     
@@ -269,8 +298,10 @@ def get_predefined_response(text):
     for key, triggers in TRIGGER_PHRASES.items():
         for trigger in triggers:
             clean_trigger = re.sub(r'[^\w\s]', '', trigger.lower()).strip()
+            # Controlliamo la corrispondenza esatta dell'intero messaggio
             if clean_text == clean_trigger:
                 raw_response = RISPOSTE_PREDEFINITE.get(key)
+                # Applica la variazione locale offline prima di restituire il testo!
                 return vary_response(raw_response)
     
     return None
@@ -280,39 +311,6 @@ class AliasResolver:
     @staticmethod
     def get_real_name(name):
         return WIKIALIAS.get(name, name)
-    
-    @staticmethod
-    def get_alias(real_name):
-        for alias, name in WIKIALIAS.items():
-            if name == real_name and alias != name:
-                return alias
-        return real_name
-    
-    @staticmethod
-    def apply_aliases_to_text(text):
-        if not text:
-            return text
-        
-        real_to_alias = {}
-        for alias, real_name in WIKIALIAS.items():
-            if alias != real_name:
-                real_to_alias[real_name] = alias
-        
-        for real_name, alias in real_to_alias.items():
-            text = re.sub(r'(?i)\b' + re.escape(real_name) + r'\b', alias, text)
-        
-        return text
-    
-    @staticmethod
-    def restore_real_names_to_text(text):
-        if not text:
-            return text
-        
-        for alias, real_name in WIKIALIAS.items():
-            if alias != real_name:
-                text = re.sub(r'(?i)\b' + re.escape(alias) + r'\b', real_name, text)
-        
-        return text
     
     @staticmethod
     def resolve_all_names(text):
@@ -332,11 +330,8 @@ class MessageDB:
             purchased_at REAL, expires_at REAL, verified INTEGER DEFAULT 0,
             verified_by TEXT, verified_at REAL
         )""")
-        self.conn.execute("""CREATE TABLE IF NOT EXISTS bot_state (
-            key TEXT PRIMARY KEY,
-            value TEXT
-        )""")
         
+        # === SEZIONE AGGIORNAMENTO SCHEMA DB PRE-ESISTENTE ===
         try:
             self.conn.execute("ALTER TABLE bypass_purchases ADD COLUMN verified INTEGER DEFAULT 0")
         except sqlite3.OperationalError:
@@ -363,19 +358,6 @@ class MessageDB:
                 current_uses INTEGER DEFAULT 0
             )
         """)
-        self.conn.commit()
-    
-    def get_last_update_id(self):
-        """Recupera l'ultimo update_id elaborato"""
-        cursor = self.conn.execute("SELECT value FROM bot_state WHERE key = 'last_update_id'")
-        row = cursor.fetchone()
-        if row:
-            return int(row[0])
-        return 0
-    
-    def set_last_update_id(self, update_id):
-        """Salva l'ultimo update_id elaborato"""
-        self.conn.execute("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('last_update_id', ?)", (str(update_id),))
         self.conn.commit()
     
     def is_processed(self, update_id):
@@ -492,6 +474,7 @@ class VideoRateLimiter:
         self.current_user = None
     
     def can_process(self, user_id, db):
+        # FIX: Ritorna sempre una tupla da 3 elementi anche per il Developer per evitare l'Unpacking ValueError!
         if user_id == DEVELOPER_USER_ID and DEVELOPER_USER_ID != 0:
             return True, "", 0
         with self.lock:
@@ -515,6 +498,7 @@ class VideoRateLimiter:
 
 video_limiter = VideoRateLimiter()
 
+# ===== PREZZI BYPASS =====
 BYPASS_PRICES = {
     "1h": {"name": "Bypass 1 ora", "arc": 20, "hours": 1},
     "24h": {"name": "Bypass 24 ore", "arc": 100, "hours": 24},
@@ -538,7 +522,7 @@ class CESImage:
         cls.count += 1
         return {"success": True, "image_url": url, "prompt": prompt}
 
-# ==================== CES VIDEO ====================
+# ==================== CES VIDEO FLUIDO INTERPOLATO ====================
 class CESVideo:
     HEADERS = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
@@ -562,16 +546,20 @@ class CESVideo:
 
     @classmethod
     def clean_narration_text(cls, text):
+        """Pulisce il testo narrativo rimuovendo i tag di intestazione dell'AI"""
         if not text:
             return ""
+        # Rimuove intestazioni come "Narratore:", "Voce narrante:", ecc. e log di sicurezza come "User Safety:"
         text = re.sub(r'(?i)^\s*(user safety|safety|narratore|narratrice|voce fuori campo|voce narrante|testo da recitare|testo|sceneggiatura|voiceover|audio)\s*[:\-]\s*\w*\n*', '', text)
         text = text.strip().strip('"').strip("'").strip('«').strip('»')
+        # Rimuove testo tra parentesi quadre o tonde
         text = re.sub(r'\[.*?\]', '', text)
         text = re.sub(r'\(.*?\)', '', text)
         return text.strip()
 
     @classmethod
     def generate_narration_script(cls, prompt, style):
+        """Genera un testo narrativo naturale in italiano di 10-12 secondi usando Gemini o fallback locale"""
         system_instruction = (
             "Sei un regista e sceneggiatore professionista. Scrivi un brevissimo testo narrativo o poetico in italiano "
             "da recitare como voce fuori campo per un video cinematografico d'autore. "
@@ -582,6 +570,7 @@ class CESVideo:
         )
         try:
             llm_prompt = f"Prompt del video: '{prompt}' (Stile: {style})"
+            # Usiamo un tetto di token più ampio per evitare tagli
             narration = AIClient.generate(f"{system_instruction}\n\n{llm_prompt}", max_tok=150)
             if narration:
                 cleaned = cls.clean_narration_text(narration)
@@ -590,6 +579,7 @@ class CESVideo:
         except:
             pass
         
+        # Fallback offline per prompt comuni o generici
         prompt_clean = prompt.lower().strip()
         if "gatto" in prompt_clean:
             return "Un piccolo gatto gioca felice con il suo gomitolo di lana, tra movimenti lenti e sguardi curiosi."
@@ -625,9 +615,11 @@ class CESVideo:
         
         print(f"   ⠋ Avvio download fotogramma master ad alta definizione...")
         
+        # Generiamo UN singolo master frame per garantire la coerenza totale di Sora/Veo
         master_seed = random.randint(100000, 899999)
         cache_bust = random.randint(1000, 9999)
         
+        # Utilizziamo Flux per avere la massima qualità possibile
         url = f"https://image.pollinations.ai/prompt/{urllib.parse.quote(style_prompt + '. ' + prompt)}?width=1280&height=720&nologo=true&seed={master_seed}&cb={cache_bust}&model=flux"
         master_img_path = job_dir / "master.jpg"
         
@@ -668,6 +660,9 @@ class CESVideo:
             
         video_temp = job_dir / "video_silent.mp4"
         
+        # === SIMULAZIONE SORA/VEO FLUIDO CON CAM-SHAKE 3D (24 FPS - 12 SECONDI) ===
+        # Generiamo 288 frame totali (12 secondi a 24fps) applicando una camera wobble realistica
+        # e un'oscillazione di luce volumetrica. È leggerissimo per la RAM (soli 40MB di buffer).
         motion_filter = (
             "scale=1280:720,"
             "zoompan=z='1.15+0.0005*on':d=288:x='(iw-iw/zoom)/2 + 5*sin(on/8)':y='(ih-ih/zoom)/2 + 4*cos(on/10)':s=640x360,"
@@ -750,12 +745,10 @@ class AIClient:
     
     @classmethod
     def generate(cls, prompt, max_tok=300):
-        prompt_with_aliases = AliasResolver.apply_aliases_to_text(prompt)
-        
         if GEMINI_API_KEY:
             try:
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={GEMINI_API_KEY}"
-                d = json.dumps({"contents":[{"parts":[{"text":prompt_with_aliases}]}],"generationConfig":{"maxOutputTokens":max_tok,"temperature":0.7}}).encode()
+                d = json.dumps({"contents":[{"parts":[{"text":prompt}]}],"generationConfig":{"maxOutputTokens":max_tok,"temperature":0.7}}).encode()
                 req = urllib.request.Request(url, data=d, headers={"Content-Type":"application/json"}, method='POST')
                 with urllib.request.urlopen(req, timeout=15) as r:
                     j = json.loads(r.read().decode())
@@ -764,32 +757,27 @@ class AIClient:
                         result = ' '.join([p.get("text","") for p in parts])
                         if result.strip():
                             cls.count += 1
-                            cleaned = cls._clean(result)
-                            return AliasResolver.restore_real_names_to_text(cleaned)
-            except Exception as e:
-                print(f"⚠️ Errore Gemini: {e}")
+                            return cls._clean(result)
+            except:
                 pass
-        
         if OPENROUTER_API_KEY:
             try:
-                d = json.dumps({"model":"openrouter/free","messages":[{"role":"user","content":prompt_with_aliases}],"max_tokens":max_tok,"temperature":0.7}).encode()
+                d = json.dumps({"model":"openrouter/free","messages":[{"role":"user","content":prompt}],"max_tokens":max_tok,"temperature":0.7}).encode()
                 req = urllib.request.Request("https://openrouter.ai/api/v1/chat/completions", data=d,
                     headers={"Authorization":f"Bearer {OPENROUTER_API_KEY}","Content-Type":"application/json"}, method='POST')
                 with urllib.request.urlopen(req, timeout=20) as r:
                     j = json.loads(r.read().decode())
                     if "choices" in j:
                         cls.count += 1
-                        cleaned = cls._clean(j["choices"][0]["message"]["content"])
-                        return AliasResolver.restore_real_names_to_text(cleaned)
-            except Exception as e:
-                print(f"⚠️ Errore OpenRouter: {e}")
+                        return cls._clean(j["choices"][0]["message"]["content"])
+            except:
                 pass
-        
         return None
     
     @classmethod
     def _clean(cls, text):
         text = text.strip()
+        # Rimuove righe di "User Safety:" o metadati simili inseriti da API o proxy
         text = re.sub(r'(?i)^User Safety:\s*\w+\s*\n?', '', text)
         text = re.sub(r'(?i)^Safety:\s*\w+\s*\n?', '', text)
         text = re.sub(r'(?i)^(okay|let me|dunque|allora|vediamo|analizzo|devo|i need|first|penso|credo|echo).*?[:\.]\s*', '', text)
@@ -807,6 +795,7 @@ class ArcadiaBot:
         self.dups = 0
         self.username = ""
         self.id = 0
+        # Recupera subito le info fondamentali del bot in fase di avvio per massima robustezza
         self.fetch_bot_info()
         gc.collect()
 
@@ -845,6 +834,7 @@ class ArcadiaBot:
         if len(text) > 4000:
             text = text[:3990] + "..."
             
+        # === SIMULAZIONE DIGITAZIONE UMANA (TYPING EFFECT) ===
         typing_duration = min(len(text) * 0.02 + 0.4, 2.5)
         
         self.api("sendChatAction", {"chat_id": chat_id, "action": "typing"})
@@ -901,7 +891,9 @@ class ArcadiaBot:
             return {"ok": False}
     
     def handle_image(self, chat_id, file_id, caption, user_id):
+        """Scarica l'immagine, la analizza con CESImageViewer e risponde."""
         try:
+            # 1. Scarica il file
             file_info = self.api("getFile", {"file_id": file_id})
             if not file_info.get("ok"):
                 self.send(chat_id, "❌ Impossibile ottenere il file.")
@@ -910,18 +902,22 @@ class ArcadiaBot:
             file_path = file_info["result"]["file_path"]
             file_url = f"https://api.telegram.org/file/bot{self.token}/{file_path}"
 
+            # Salva in temp
             img_temp = TEMP_FOLDER / f"img_{user_id}_{int(time.time())}.jpg"
             
+            # Scarica con timeout e gestione errori
             req = urllib.request.Request(file_url, headers={'User-Agent': 'ArcadiaAI/1.0'})
             with urllib.request.urlopen(req, timeout=30) as resp:
                 with open(img_temp, 'wb') as f:
                     f.write(resp.read())
 
+            # Verifica che il file sia stato scaricato correttamente
             if not img_temp.exists() or img_temp.stat().st_size < 100:
                 self.send(chat_id, "❌ Il file immagine non è stato scaricato correttamente.")
                 img_temp.unlink(missing_ok=True)
                 return
 
+            # 2. Analizza con CESImageViewer
             if HAS_IMAGE_VIEWER:
                 try:
                     viewer = CESImageViewer()
@@ -929,9 +925,11 @@ class ArcadiaBot:
                 except Exception as e:
                     raw_description = f"❌ Errore durante l'analisi dell'immagine: {str(e)}"
             else:
-                raw_description = "❌ CES Image Viewer non è disponibile."
+                raw_description = "❌ CES Image Viewer non è disponibile. Assicurati che 'ces_image_viewer.py' sia nella stessa cartella e che OpenCV (opencv-python) sia installato."
 
+            # 3. Formatta con AI se disponibile
             if raw_description.startswith("=== CES IMAGE VIEWER"):
+                # Costruisci il prompt per l'AI
                 if caption and len(caption) > 0:
                     user_prompt = f"L'utente ha mandato una foto con la didascalia: '{caption}'. Ecco la descrizione tecnica dell'immagine:\n\n{raw_description}"
                 else:
@@ -950,7 +948,10 @@ class ArcadiaBot:
             else:
                 response = raw_description
 
+            # 4. Invia risposta
             self.send(chat_id, response)
+
+            # 5. Pulizia
             img_temp.unlink(missing_ok=True)
 
         except urllib.error.URLError as e:
@@ -981,14 +982,17 @@ class ArcadiaBot:
         
         text = msg.get("text", "").strip()
         
+        # ==================== GESTIONE IMMAGINI ====================
         if "photo" in msg:
-            photo = msg["photo"][-1]
+            # Ottieni il file_id della foto (la più grande disponibile)
+            photo = msg["photo"][-1]  # ultimo elemento = risoluzione massima
             file_id = photo["file_id"]
             caption = msg.get("caption", "").strip()
 
+            # Decide se analizzare automaticamente o solo su richiesta
             if not caption or any(k in caption.lower() for k in ["analizza", "immagine", "foto", "vedi", "descrivi", "guarda", "che foto", "come sono"]):
                 self.handle_image(chat_id, file_id, caption, user_id)
-                return
+                return  # non elaborare ulteriormente il testo
         
         if not text:
             return
@@ -996,6 +1000,7 @@ class ArcadiaBot:
         is_group = chat_type in ["group", "supergroup"]
         bot_username = self.username.lower() if self.username else ""
         
+        # --- CONTROLLO RISPOSTA DIRETTA AL BOT (REPLY TO SELF) ---
         is_reply_to_bot = False
         if "reply_to_message" in msg:
             reply_to = msg["reply_to_message"]
@@ -1003,26 +1008,39 @@ class ArcadiaBot:
             reply_to_username = reply_to_from.get("username", "")
             reply_to_id = reply_to_from.get("id", 0)
             
+            # Controlla tramite ID univoco o username se l'utente ha risposto ad ArcadiaAI
             if (self.id and reply_to_id == self.id) or (bot_username and reply_to_username.lower() == bot_username):
                 is_reply_to_bot = True
 
+        # Elenco dei comandi ufficialmente supportati dal bot
         registered_commands = [
             "/start", "/aiuto", "/help", "/videohelp", "/video",
             "/codice_sorgente", "/buy_bypass", "/create_vip",
             "/redeem", "/img", "/stats", "/cerca",
-            "/vip_status", "/my_vip_codes", "/ai", "/alias_test"
+            "/vip_status", "/my_vip_codes", "/ai"
         ]
         
+        # Normalizza il comando: rimuovi il tag @botname
+        text_lower = text.lower()
         proc_text = text
         
+        # Rimuovi il tag del bot dal comando
         if bot_username:
+            # Rimuovi @botusername da qualsiasi parte del testo
             proc_text = re.sub(r'(?i)@' + re.escape(bot_username), '', proc_text).strip()
+            # Rimuovi anche @botusername dai comandi (es. /ai@bot -> /ai)
             proc_text = re.sub(r'(/\w+)@' + re.escape(bot_username), r'\1', proc_text, flags=re.IGNORECASE)
         
+        # Estrai il comando dal testo processato
         first_word = proc_text.split()[0].lower() if proc_text else ""
+        
+        # Controlla se è un comando registrato
         is_command = first_word in registered_commands
+        
+        # Controlla se il bot è stato taggato (mentre il testo contiene @botusername)
         is_mentioned = bot_username and f"@{bot_username}" in text.lower()
         
+        # ================ LOG DI DEBUG ================
         print(f"📥 [{chat_type.upper()}] Messaggio da {user_name} (ID: {user_id}): '{text}'")
         print(f"   ↳ Processato: '{proc_text}' | first_word: '{first_word}'")
         if is_reply_to_bot:
@@ -1032,29 +1050,44 @@ class ArcadiaBot:
         if is_mentioned:
             print(f"   ↳ ✅ Taggato: @{bot_username}")
             
+        # ================ FILTRO DI GRUPPO ================
         if is_group:
+            # In un gruppo, rispondi solo se:
+            # - È un comando registrato
+            # - Il bot è stato taggato
+            # - È una risposta a un messaggio del bot
             if not (is_command or is_mentioned or is_reply_to_bot):
                 print("   🚫 Ignorato (Nessun comando, tag o reply esplicita).")
                 return
 
+        # ================ CREA LA QUERY AI ================
         ai_query = proc_text
         
+        # Se il comando è /ai, estrai la query dopo il comando
         if first_word == "/ai":
-            ai_query = proc_text[3:].strip()
+            # Rimuovi il comando /ai dalla query
+            ai_query = proc_text[3:].strip()  # /ai è lungo 3 caratteri
             if not ai_query:
+                # Se non c'è query dopo /ai, chiedi cosa vuole
                 self.send(chat_id, "💬 Cosa vuoi chiedermi? Usa `/ai <domanda>`")
                 return
         
+        # Rimuovi il tag del bot dalla query (se presente)
         if bot_username:
             ai_query = re.sub(r'(?i)@' + re.escape(bot_username), '', ai_query).strip()
         
+        # Pulisci la query da spazi multipli
         ai_query = re.sub(r'\s+', ' ', ai_query).strip()
         
+        # ==================== GESTIONE DEI COMANDI ====================
+        
+        # ---- COMANDO /start ----
         if first_word == "/start":
             dev = "🔓 Dev" if user_id == DEVELOPER_USER_ID else ""
             self.send(chat_id, f"👋 Ciao {user_name}! ArcadiaAI.\n\n🎬 /video [desc] - Video AI diretto\n🎨 /img [desc] - Immagine\n🎫 /vip [codice] - Riscatta codice VIP\n🖼️ Invia una foto con 'analizza' per descriverla\n💬 Fammi una domanda!\n📋 /aiuto{(' ' + dev) if dev else ''}")
             return
         
+        # ---- COMANDO /aiuto o /help ----
         elif first_word in ["/aiuto", "/help"]:
             self.send(chat_id, "🎬 **Comandi ArcadiaAI**\n\n"
                 "🎬 /video [stile] [descrizione] - Video AI\n"
@@ -1075,6 +1108,7 @@ class ArcadiaBot:
                 "• Oppure taggami con `@{self.username} <domanda>`")
             return
         
+        # ---- COMANDO /videohelp ----
         elif first_word == "/videohelp":
             self.send(chat_id, "🎬 **CES Video** - Text-to-Video Diretto\n\n"
                 "/video [stile] [descrizione]\n"
@@ -1084,41 +1118,19 @@ class ArcadiaBot:
                 "🏦 /buy_bypass per illimitati")
             return
         
-        elif first_word == "/alias_test":
-            if not WIKIALIAS:
-                self.send(chat_id, "⚠️ **Nessun alias caricato!**\n\n"
-                    "Verifica che il file `wikialias.json` esista nella stessa cartella di ESEMPIO.py\n\n"
-                    "Il file deve essere in formato JSON valido, ad esempio:\n"
-                    "```json\n"
-                    "{\n"
-                    '  "Mirko Orsato": "Mirko Yuri Donato",\n'
-                    '  "Salvatore Shelby": "Salvatore Giordano"\n'
-                    "}\n"
-                    "```")
-                return
-            
-            test_text = "Salvatore Giordano ha fondato Lumenaria? No, è stato Filippo Zanetti! E Mirko Yuri Donato ha scritto La Storia di Lumenaria."
-            aliased = AliasResolver.apply_aliases_to_text(test_text)
-            restored = AliasResolver.restore_real_names_to_text(aliased)
-            
-            mapping = "\n".join([f"  🔒 {alias} -> {real_name}" for alias, real_name in WIKIALIAS.items() if alias != real_name])
-            
-            self.send(chat_id, f"🔀 **Test Sistema Alias (Privacy-First)**\n\n"
-                f"**📝 Testo Originale:**\n{test_text}\n\n"
-                f"**🔒 Testo con Alias (inviato all'API):**\n{aliased}\n\n"
-                f"**🔓 Testo Restituito (nomi reali):**\n{restored}\n\n"
-                f"**📋 Mappatura Alias attuale ({len(WIKIALIAS)} alias):**\n{mapping}")
-            return
-        
+        # ---- COMANDO /ai ----
         elif first_word == "/ai":
+            # Se non c'è query, già gestito sopra
             if not ai_query:
                 return
             
             print(f"   🤖 Query AI: '{ai_query}'")
             self.send(chat_id, "🔍 Cerco nelle mie conoscenze...")
             
+            # 1. Cerca nei file .txt
             search_results = self.knowledge.search(ai_query, max_results=10)
             
+            # 2. Costruisci il contesto
             if search_results:
                 context_parts = []
                 for r in search_results[:5]:
@@ -1129,6 +1141,7 @@ class ArcadiaBot:
                 context = "Nessun risultato trovato nei file di conoscenza."
                 print(f"⚠️ Nessun risultato utile per: {ai_query}")
             
+            # 3. Prepara il prompt
             system = f"""{IDENTITY_PROMPT}
 
 **CONOSCENZA DAI FILE LOCALI (USA QUESTE INFORMAZIONI CON MASSIMA PRIORITÀ):**
@@ -1144,11 +1157,13 @@ class ArcadiaBot:
 
 **RISPOSTA:**"""
             
+            # 4. Genera con l'AI
             answer = AIClient.generate(system, max_tok=1200)
             
             if answer:
                 self.send(chat_id, answer.strip())
             else:
+                # Fallback: cerca su internet
                 self.send(chat_id, "🌐 Cerco su internet...")
                 raw_results = WebSearch.search(ai_query, n=4)
                 if raw_results:
@@ -1160,6 +1175,7 @@ class ArcadiaBot:
                     self.send(chat_id, "❌ Non ho trovato informazioni su questo argomento.")
             return
         
+        # ---- COMANDO /video ----
         elif first_word == "/video":
             args = proc_text[6:].strip()
             if not args:
@@ -1210,15 +1226,18 @@ class ArcadiaBot:
                 video_limiter.finish(user_id)
             return
         
+        # ---- COMANDO /codice_sorgente ----
         elif first_word == "/codice_sorgente":
             self.send(chat_id, "📂 Codice sorgente: https://github.com/Mirko-linux/ArcadiaAI-new")
             return
         
+        # ---- COMANDO /buy_bypass ----
         elif first_word == "/buy_bypass":
             prices = "\n".join([f"• {i['name']}: {i['arc']} ARC" for i in BYPASS_PRICES.values()])
             self.send(chat_id, f"👋 Scegli come supportarci:\n\n{prices}\n\nUsa /buy_bypass [nome] per procedere!")
             return
         
+        # ---- COMANDO /create_vip ----
         elif first_word == "/create_vip":
             if user_id != DEVELOPER_USER_ID:
                 self.send(chat_id, "❌ Solo lo sviluppatore può creare codici VIP.")
@@ -1246,6 +1265,7 @@ class ArcadiaBot:
                 self.send(chat_id, f"❌ Errore durante la creazione: {str(e)}")
             return
         
+        # ---- COMANDO /redeem ----
         elif first_word == "/redeem":
             code = proc_text[7:].strip().upper()
             if not code:
@@ -1259,6 +1279,7 @@ class ArcadiaBot:
                 self.send(chat_id, f"❌ {message}")
             return
         
+        # ---- COMANDO /img ----
         elif first_word == "/img":
             p = proc_text[4:].strip()
             if p:
@@ -1269,11 +1290,13 @@ class ArcadiaBot:
                     self.send(chat_id, f"⚠️ {r['error']}")
             return
         
+        # ---- COMANDO /stats ----
         elif first_word == "/stats":
             mem = self._mem()
             self.send(chat_id, f"💬 {self.msgs} | 🤖 {AIClient.count} | 🎨 {CESImage.count} | {CESVideo.count} | 🧠 {mem:.1f}MB")
             return
         
+        # ---- COMANDO /cerca ----
         elif first_word == "/cerca":
             query = proc_text[7:].strip()
             if not query:
@@ -1316,16 +1339,20 @@ class ArcadiaBot:
                 self.send(chat_id, msg)
             return
 
+        # ==================== GESTIONE MESSAGGIO VUOTO ====================
         if not ai_query:
             if is_group:
                 self.send(chat_id, f"Ciao {user_name}! Per farmi una domanda usa il comando `/ai <domanda>` oppure taggami scrivendo `@{self.username} <domanda>`.")
             return
 
+        # ==================== RISPOSTE PREDEFINITE ====================
         predefined = get_predefined_response(ai_query)
         if predefined:
             self.send(chat_id, predefined)
             return
         
+        # ==================== AI CON KNOWLEDGE BASE (per messaggi senza comando) ====================
+        # Questo viene eseguito solo in privato o se il bot è stato taggato
         self.send(chat_id, "🔍 Cerco nelle mie conoscenze...")
         
         search_results = self.knowledge.search(ai_query, max_results=10)
@@ -1383,42 +1410,25 @@ class ArcadiaBot:
     
     def run_polling(self):
         print("\n" + "="*60)
-        print("🤖 ArcadiaAI - Versione con Polling Persistente")
-        print("💾 I messaggi NON vengono persi quando il bot è spento!")
-        print("🔒 Sistema alias attivo: i nomi reali non vengono mai inviati alle API!")
+        print("🤖 ArcadiaAI - Versione Corretta con CES Image Viewer")
+        print("💾 Supporto robusto e pulizia metadati attiva")
         print("🖼️ Analisi immagini integrata!")
         print("📌 /ai funziona in gruppi e supergruppi!")
-        print("🔧 /alias_test per testare il sistema di alias")
         print("="*60 + "\n")
-        
-        # Rimuovi webhook se esistente
         self.api("deleteWebhook")
-        
-        # Recupera l'ultimo update_id elaborato
-        last_id = self.db.get_last_update_id()
-        print(f"📌 Ultimo update_id elaborato: {last_id}")
-        
+        last_id = 0
         while True:
             try:
-                # Usa offset per recuperare solo i messaggi più recenti
                 updates = self.api("getUpdates", {"offset": last_id + 1, "timeout": 30})
-                
                 if updates.get("ok") and updates.get("result"):
                     for update in updates["result"]:
-                        update_id = update["update_id"]
-                        
-                        # Salva l'update_id nel database PRIMA di elaborare
-                        # così se il bot si spegne, riprende da qui
-                        self.db.set_last_update_id(update_id)
-                        last_id = update_id
-                        
+                        last_id = update["update_id"]
                         self.process_update(update)
-                        
             except KeyboardInterrupt:
                 print("\n👋 Ciao!")
                 break
             except Exception as e:
-                print(f"⚠️ Errore nel polling: {e}")
+                print(f"⚠️ {e}")
                 time.sleep(2)
 
 # ==================== CLASSI SUPPORTO ====================
@@ -1466,6 +1476,7 @@ class KnowledgeBase:
                 
     @staticmethod
     def stem_word(word):
+        """Filtro di stemming euristico ultra-leggero per la lingua italiana"""
         word = word.lower().strip()
         word = re.sub(r'[^\w]', '', word)
         if len(word) <= 2:
@@ -1506,6 +1517,7 @@ class KnowledgeBase:
         return words if words else cleaned.split()
 
     def index_chunks(self):
+        """Suddivide il testo in paragrafi e calcola l'IDF dinamico sui termini completi + gli stem"""
         self.chunks = []
         doc_counts = defaultdict(int)
         
@@ -1535,6 +1547,7 @@ class KnowledgeBase:
             self.idf[term] = math.log((total_chunks + 1) / (count + 0.5)) + 1.0
 
     def _add_chunk(self, filename, text, doc_counts):
+        """Salva sia gli Stem che le Parole Intere (fondamentale per evitare la corruzione dei Nomi Propri)"""
         words = re.findall(r'\w+', text.lower())
         stems = []
         term_freqs = defaultdict(int)
@@ -1562,6 +1575,7 @@ class KnowledgeBase:
         })
 
     def search(self, query, max_results=5):
+        """Esegue un calcolo probabilistico combinando IDF e booster di coerenza usando parole esatte e stem"""
         query_words = re.findall(r'\w+', query.lower())
         query_stems = []
         for w in query_words:
@@ -1621,10 +1635,11 @@ class KnowledgeBase:
         
         return None
 
-# ==================== WEB SEARCH ====================
+# ==================== WEB SEARCH POTENZIATO ====================
 class WebSearch:
     @staticmethod
     def search(query, n=4):
+        """Ricerca su DuckDuckGo con parsing robusto e pulizia HTML"""
         results = []
         try:
             encoded_q = urllib.parse.quote_plus(query)
@@ -1635,6 +1650,7 @@ class WebSearch:
             with urllib.request.urlopen(req, timeout=8) as r:
                 html = r.read().decode('utf-8', errors='ignore')
                 
+                # Parsing migliorato: cerca blocchi risultato completi
                 blocks = re.findall(r'<div class="result__body">.*?</div>', html, re.DOTALL)
                 
                 for block in blocks[:n]:
@@ -1645,10 +1661,11 @@ class WebSearch:
                         title = re.sub(r'<[^>]+>', '', title_match.group(1)).strip()
                         snippet = re.sub(r'<[^>]+>', '', snippet_match.group(1)).strip()
                         
+                        # Estrai URL dal titolo (spesso nascosto nel tag <a>)
                         url_match = re.search(r'href=["\']([^"\']+)', title_match.group(0))
                         url = url_match.group(1) if url_match else ""
                         
-                        if len(snippet) > 20:
+                        if len(snippet) > 20:  # Filtra snippet vuoti o troppo corti
                             results.append({
                                 "title": title,
                                 "snippet": snippet,
@@ -1661,15 +1678,12 @@ class WebSearch:
     
 def main():
     print("\n" + "="*60)
-    print("🤖 ArcadiaAI - Versione con Polling Persistente")
-    print("💾 I messaggi NON vengono persi quando il bot è spento!")
-    print("🔒 I nomi reali NON vengono mai inviati alle API!")
+    print("🤖 ArcadiaAI - Versione Corretta per Database /data")
+    print("💾 Supporto Stemming + Parola Intera")
     print("🖼️ Analisi immagini con CES Image Viewer integrata")
     print("📌 /ai funziona in gruppi e supergruppi!")
-    print("🔧 /alias_test per testare il sistema")
     print("📜 Licenza: MPL 2.0")
     print("="*60 + "\n")
-    
     bot = ArcadiaBot()
     if not bot.test():
         sys.exit(1)
@@ -1678,7 +1692,6 @@ def main():
     print(f"📚 Risposte predefinite caricate: {len(RISPOSTE_PREDEFINITE)}")
     print(f"🔍 Trigger configurati: {len(TRIGGER_PHRASES)}")
     print(f"🖼️ CES Image Viewer disponibile: {HAS_IMAGE_VIEWER}")
-    print(f"🔒 Alias caricati: {len(WIKIALIAS)}")
     print("\n")
     
     try:
