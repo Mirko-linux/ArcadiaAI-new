@@ -279,10 +279,12 @@ def get_predefined_response(text):
 class AliasResolver:
     @staticmethod
     def get_real_name(name):
+        """Dato un alias, restituisce il nome reale"""
         return WIKIALIAS.get(name, name)
     
     @staticmethod
     def get_alias(real_name):
+        """Dato un nome reale, restituisce il suo alias (il primo trovato)"""
         for alias, name in WIKIALIAS.items():
             if name == real_name and alias != name:
                 return alias
@@ -290,14 +292,20 @@ class AliasResolver:
     
     @staticmethod
     def apply_aliases_to_text(text):
+        """
+        Sostituisce i nomi reali con gli alias nel testo (per l'API).
+        Esempio: "Mirko Yuri Donato" -> "Mirko Orsato"
+        """
         if not text:
             return text
         
+        # Crea una mappa: nome_reale -> alias
         real_to_alias = {}
         for alias, real_name in WIKIALIAS.items():
             if alias != real_name:
                 real_to_alias[real_name] = alias
         
+        # Sostituisci ogni nome reale con il suo alias
         for real_name, alias in real_to_alias.items():
             text = re.sub(r'(?i)\b' + re.escape(real_name) + r'\b', alias, text)
         
@@ -305,9 +313,14 @@ class AliasResolver:
     
     @staticmethod
     def restore_real_names_to_text(text):
+        """
+        Restituisce i nomi reali dagli alias nel testo (per l'utente).
+        Esempio: "Mirko Orsato" -> "Mirko Yuri Donato"
+        """
         if not text:
             return text
         
+        # WIKIALIAS è: alias -> nome_reale
         for alias, real_name in WIKIALIAS.items():
             if alias != real_name:
                 text = re.sub(r'(?i)\b' + re.escape(alias) + r'\b', real_name, text)
@@ -316,6 +329,9 @@ class AliasResolver:
     
     @staticmethod
     def resolve_all_names(text):
+        """
+        Versione esistente: sostituisce alias -> nomi reali (per i file di conoscenza)
+        """
         for alias, real_name in WIKIALIAS.items():
             if alias != real_name:
                 text = re.sub(r'\b' + re.escape(alias) + r'\b', real_name, text)
@@ -750,6 +766,7 @@ class AIClient:
     
     @classmethod
     def generate(cls, prompt, max_tok=300):
+        # Applica gli alias al prompt (nome reale -> alias)
         prompt_with_aliases = AliasResolver.apply_aliases_to_text(prompt)
         
         if GEMINI_API_KEY:
@@ -765,7 +782,7 @@ class AIClient:
                         if result.strip():
                             cls.count += 1
                             cleaned = cls._clean(result)
-                            return AliasResolver.restore_real_names_to_text(cleaned)
+                            return cleaned
             except Exception as e:
                 print(f"⚠️ Errore Gemini: {e}")
                 pass
@@ -780,7 +797,7 @@ class AIClient:
                     if "choices" in j:
                         cls.count += 1
                         cleaned = cls._clean(j["choices"][0]["message"]["content"])
-                        return AliasResolver.restore_real_names_to_text(cleaned)
+                        return cleaned
             except Exception as e:
                 print(f"⚠️ Errore OpenRouter: {e}")
                 pass
@@ -789,12 +806,26 @@ class AIClient:
     
     @classmethod
     def _clean(cls, text):
+        """Pulisce la risposta e restituisce i nomi reali"""
         text = text.strip()
+        
+        # Rimuove righe di metadati
         text = re.sub(r'(?i)^User Safety:\s*\w+\s*\n?', '', text)
         text = re.sub(r'(?i)^Safety:\s*\w+\s*\n?', '', text)
         text = re.sub(r'(?i)^(okay|let me|dunque|allora|vediamo|analizzo|devo|i need|first|penso|credo|echo).*?[:\.]\s*', '', text)
-        lines = [l for l in text.split('\n') if not re.match(r'(?i)^(okay|let me|dunque|quindi|devo|i need|the user|first|user safety|safety)', l.strip())]
-        return AliasResolver.resolve_all_names('\n'.join(lines).strip() if lines else text)
+        
+        # Rimuove righe indesiderate
+        lines = []
+        for l in text.split('\n'):
+            if not re.match(r'(?i)^(okay|let me|dunque|quindi|devo|i need|the user|first|user safety|safety)', l.strip()):
+                lines.append(l)
+        text = '\n'.join(lines).strip() if lines else text
+        
+        # ======== FIX: RESTITUISCI I NOMI REALI ========
+        # Sostituisce alias -> nomi reali
+        text = AliasResolver.restore_real_names_to_text(text)
+        
+        return text
 
 class ArcadiaBot:
     def __init__(self):
@@ -1391,24 +1422,19 @@ class ArcadiaBot:
         print("🔧 /alias_test per testare il sistema di alias")
         print("="*60 + "\n")
         
-        # Rimuovi webhook se esistente
         self.api("deleteWebhook")
         
-        # Recupera l'ultimo update_id elaborato
         last_id = self.db.get_last_update_id()
         print(f"📌 Ultimo update_id elaborato: {last_id}")
         
         while True:
             try:
-                # Usa offset per recuperare solo i messaggi più recenti
                 updates = self.api("getUpdates", {"offset": last_id + 1, "timeout": 30})
                 
                 if updates.get("ok") and updates.get("result"):
                     for update in updates["result"]:
                         update_id = update["update_id"]
                         
-                        # Salva l'update_id nel database PRIMA di elaborare
-                        # così se il bot si spegne, riprende da qui
                         self.db.set_last_update_id(update_id)
                         last_id = update_id
                         
