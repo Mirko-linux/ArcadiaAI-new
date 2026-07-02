@@ -76,9 +76,14 @@ for alias, real_name in WIKIALIAS.items():
     if alias != real_name:
         REAL_TO_ALIAS[real_name].append(alias)
 
-# ==================== IDENTITY PROMPT ====================
+# ==================== IDENTITY PROMPT (CORRETTO - FORZA ITALIANO) ====================
 IDENTITY_PROMPT = """Sei **ArcadiaAI**, un assistente intelligente open-source creato da Mirko Yuri Donato. 
 Licenza: MPL 2.0.
+
+## REGOLE FONDAMENTALI (DA RISPETTARE SEMPRE)
+1. **DEVI rispondere SOLO in italiano.** Mai in inglese o altre lingue.
+2. **NON mostrare il tuo ragionamento.** Rispondi direttamente con la risposta finale.
+3. **NON usare frasi come "analizzo", "vediamo", "cerco di", "let me", "I need".** Rispondi e basta.
 
 ## LA TUA IDENTITÀ
 - **Nome:** ArcadiaAI
@@ -95,14 +100,14 @@ Sei esperto di:
    - **Arcadia**: fondata da Andrea Lazarev l'11 dicembre 2021.
    - **Iberia**, **Lotaringia**
 2. **Storia leonense**: Dalla fondazione di Leonia (2019) ad oggi
-3. **Personaggi**: Filippo Zanetti (fondatore di Lumenaria), Carlo Cesare Orlando (fondatore di Leonia), Andrea Lazarev (fondatore di Arcadia), Andrea Lazarev, Omar Lanfredi, Ciua Grazisky, Salvatore Giordano, Tobia Testa
-4. **Cultura**: Literature micronazionale, poetica, filosofia politica
+3. **Personaggi**: Filippo Zanetti, Carlo Cesare Orlando, Andrea Lazarev, Omar Lanfredi, Ciua Grazisky, Salvatore Giordano, Tobia Testa
+4. **Cultura**: Letteratura micronazionale, poetica, filosofia politica
 5. **Tecnologia**: Open source, CES (Cogito Ergo Sum), Nova Surf
 
 ## COME RISPONDERE
 
 ### SEMPRE:
-- Rispondi in **italiano** (lingua principale)
+- Rispondi in **italiano** (lingua principale) - **NON IN INGLESE!**
 - Usa un tono **professionale ma accessibile**
 - Se usi i dati dei file di conoscenza, indica la fonte **esclusivamente una sola volta alla fine della risposta** usando il formato `[Fonte: Nome-File.txt]`.
 - **Non ripetere** il nome del file all'interno dei singoli punti dell'elenco o in ogni capoverso della risposta.
@@ -110,12 +115,15 @@ Sei esperto di:
   - Introduzione chiara ed elegante
   - Punti chiave ben spaziati (bullet points) se necessario
   - Fonte indicata solo alla fine
+- **Rispondi direttamente**, senza mostrare il ragionamento o il processo di ricerca.
 
 ### MAI:
 - **Non inventare** informazioni (se non sai, dillo!)
 - **Non copiare** testi interi senza citare correttamente alla fine
 - **Non essere** vago o generico
 - **Non contraddire** i dati nei file .txt
+- **Non rispondere in inglese** - SOLO ITALIANO!
+- **Non mostrare il ragionamento** - rispondi direttamente!
 
 ### Quando non trovi informazioni:
 "Non ho trovato informazioni specifiche su [argomento] nei miei file di conoscenza. Posso suggerirti di chiedere a qualcun altro o riformulare la domanda."
@@ -131,44 +139,44 @@ RISPOSTE_PREDEFINITE = {
     "chi sei": "Sono ArcadiaAI, un chatbot libero e open source, creato da Mirko Yuri Donato.",
     "cosa sai fare": "Posso aiutarti a scrivere saggi, fare ricerche e rispondere a tutto ciò che mi chiedi. Inoltre, posso pubblicare contenuti su Telegraph!",
     "chi è tobia testa": "Tobia Testa (anche noto come Tobia Teseo) è un micronazionalista leonense noto per la sua attività nella Repubblica di Arcadia, ma ha anche rivestito ruoli fondamentali a Lumenaria.",
-    "chi è mirko yuri donato": "Mirko Yuri Donato è un giovane micronazionalista, poeta e saggista italiano, noto per aver creato Nova Surf, Leonia+ e per le sus opere letterarie.",
+    "chi è mirko yuri donato": "Mirko Yuri Donato è un giovane micronazionalista, poeta e saggista italiano, noto per aver creato Nova Surf, Leonia+ e per le sue opere letterarie.",
     "chi è il presidente di arcadia": "Il presidente di Arcadia è Andrea Lazarev.",
-    "chi è il presidente di lumenaria": "Il presidente di Lumenaria attualmente is Carlo Cesare Orlando, mentre il presidente del consiglio è Ciua Grazisky. Tieni presente però che attualmente Lumenaria si trova in ibernazione istituzionale, quindi tutte as attività politiche sono sospese e la gestione dello stato è affidata al Consiglio di Fiducia.",
-    "cos'è nova surf": "Nova Surf è un browser web libero e open source, nato as un'alternativa made-in-Italy a Google Chrome, Microsoft Edge, eccetera.",
+    "chi è il presidente di lumenaria": "Il presidente di Lumenaria attualmente è Carlo Cesare Orlando, mentre il presidente del consiglio è Ciua Grazisky. Tieni presente però che attualmente Lumenaria si trova in ibernazione istituzionale, quindi tutte le attività politiche sono sospese e la gestione dello stato è affidata al Consiglio di Fiducia.",
+    "cos'è nova surf": "Nova Surf è un browser web libero e open source, nato come un'alternativa made-in-Italy a Google Chrome, Microsoft Edge, eccetera.",
     "chi ti ha creato": "Sono stato creato da Mirko Yuri Donato.",
     "chi è ciua grazisky": "Ciua Grazisky è un cittadino di Lumenaria, noto principalmente per il suo ruolo da Dirigente del Corpo di Polizia ed attuale presidente del Consiglio di Lumenaria.",
     "chi è carlo cesare orlando": "Carlo Cesare Orlando (anche noto come Davide Leone) è un micronazionalista italiano, noto per aver creato Leonia, la micronazione primordiale, da cui derivano Arcadia e Lumenaria.",
-    "chi è omar lanfredi": "Omar Lanfredi, ex cavalier all'Ordine d'onore della Repubblica di Lumenaria, segretario del Partito Repubblicano Lumenarense, fondatore e preside del Fronte Nazionale Lumenarense, co-fondatore e presidente dell'Alleanza Nazionale Lumenarense, co-fondatore e coordinatore interno di Lumenaria e Progresso, sei volte eletto senatore, tre volte Ministro della Cultura, due volte Presidente del Consiglio dei Ministri, parlamentare della Repubblica di Iberia, Direttore dell'Agenzia Nazionale di Sicurezza della Repubblica di Iberia, Sottosegretario alla Cancelleria di Iberia, Sottosegretario di Stato di Iberia, Ministro degli Affari Interni ad Iberia, Presidente del Senato della Repubblica di Lotaringia, Vicepresidente della Repubblica e Ministro degli Affari Interni della Repubblica di Lotaringia, Fondatore del giornale Il Quinto Mondo, magistrato a servizio del tribunale di giustizia di Lumenaria nell'anno 2023.",
+    "chi è omar lanfredi": "Omar Lanfredi è un politico micronazionale attivo in Lumenaria, Iberia e Lotaringia. È stato sei volte senatore, tre volte Ministro della Cultura, due volte Presidente del Consiglio dei Ministri a Lumenaria, e ha ricoperto ruoli di primo piano anche in Iberia e Lotaringia.",
     "cos'è arcadiaai": "Ottima domanda! ArcadiaAI è un chatbot open source, progettato per aiutarti a scrivere saggi, fare ricerche e rispondere a domande su vari argomenti. É stato creato da Mirko Yuri Donato ed è in continua evoluzione.",
     "sotto che licenza è distribuito arcadiaa": "ArcadiaAI è distribuito sotto la licenza open source MPL 2.0 (Mozilla Public License 2.0).",
-    "cosa sono le micronazioni": "Le micronazioni sono entità politiche che dichiarano la sovranità su un territory, ma non sono riconosciute as stati da governi o organizzazioni internazionali. Possono essere create per vari motivi, tra cui esperimenti sociali, culturali o politici.",
-    "cos'è la repubblica di arcadia": "La repubblica di Arcadia è una micronazione leonense fondata l'11 dicembre 2021 da Andrea Lazarev e alcuni suoi seguaci. Arcadia si distingue dalle altre micronazioni leonensi per il suo approccio pragmatico e per la sua burocrazia snella. La micronazione ha anche un proprio sito web https://repubblicadiarcadia.it/ e una propria community su Telegram @Repubblica_Arcadia.",
-    "cos'è la repubblica di lumenaria": "La Repubblica di Lumenaria è una micronazione fondata da Filippo Zanetti il 4 febbraio del 2020. Lumenaria is stata la micronazione più longeva della storia leonense, essendo sopravvissuta per oltre 3 anni. La micronazione ha influenzato profondamente le altre micronazioni leonensi, che hanno coesistito con essa. Tra i motivi della sua longevità ci sono la sua burocrazia più vicina a quella di uno stato reale, la sua comunità attiva e una produzione culturale di alto livello.",
+    "cosa sono le micronazioni": "Le micronazioni sono entità politiche che dichiarano la sovranità su un territorio, ma non sono riconosciute come stati da governi o organizzazioni internazionali. Possono essere create per vari motivi, tra cui esperimenti sociali, culturali o politici.",
+    "cos'è la repubblica di arcadia": "La Repubblica di Arcadia è una micronazione leonense fondata l'11 dicembre 2021 da Andrea Lazarev e alcuni suoi seguaci. Arcadia si distingue dalle altre micronazioni leonensi per il suo approccio pragmatico e per la sua burocrazia snella. La micronazione ha anche un proprio sito web https://repubblicadiarcadia.it/ e una propria community su Telegram @Repubblica_Arcadia.",
+    "cos'è la repubblica di lumenaria": "La Repubblica di Lumenaria è una micronazione fondata da Filippo Zanetti il 4 febbraio del 2020. Lumenaria è stata la micronazione più longeva della storia leonense, essendo sopravvissuta per oltre 3 anni. La micronazione ha influenzato profondamente le altre micronazioni leonensi, che hanno coesistito con essa. Tra i motivi della sua longevità ci sono la sua burocrazia più vicina a quella di uno stato reale, la sua comunità attiva e una produzione culturale di alto livello.",
     "chi è salvatore giordano": "Salvatore Giordano è un cittadino storico di Lumenaria.",
-    "da dove deriva il nome arcadia": "Il nome Arcadia deriva da un'antica regione della Grecia, simbolo di bellezza naturale e armonia. È stato scelto per representar i valori di libertà e creatività che la micronazione promuove.",
+    "da dove deriva il nome arcadia": "Il nome Arcadia deriva da un'antica regione della Grecia, simbolo di bellezza naturale e armonia. È stato scelto per rappresentare i valori di libertà e creatività che la micronazione promuove.",
     "da dove deriva il nome lumenaria": "Il nome Lumenaria prende ispirazione dai lumi facendo riferimento alla corrente illuminista del '700, ma anche da Piazza dei Lumi, sede dell'Accademia delle Micronazioni.",
-    "da dove deriva il nome leonia": "Il nome Leonia si rifà al cognome del suo fondatore Carlo Cesare Orlando, al tempo Davide Leone. Inizialmente il nome doveva essere temporaneo, ma poi è stato mantenuto como nome della micronazione.",
+    "da dove deriva il nome leonia": "Il nome Leonia si rifà al cognome del suo fondatore Carlo Cesare Orlando, al tempo Davide Leone. Inizialmente il nome doveva essere temporaneo, ma poi è stato mantenuto come nome della micronazione.",
     "cosa si intende per open source": "Il termine 'open source' si riferisce a software il cui codice sorgente è reso disponibile al pubblico, consentendo a chiunque di visualizzarlo, modificarlo e distribuirlo. Questo approccio promuove la collaborazione e l'innovazione nella comunità di sviluppo software.",
     "arcadiaai è un software libero": "Sì, ArcadiaAI è un software libero e open source, il che significa che chiunque può utilizzarlo, modificarlo e distribuirlo liberamente in conformità con i termini della sua licenza MPL 2.0.",
     "cos'è un chatbot": "Un chatbot è un programma informatico progettato per simulare una conversazione con gli utenti, spesso utilizzando tecnologie di intelligenza artificiale. I chatbot possono essere utilizzati per fornire assistenza, rispondere a domande o semplicemente intrattenere.",
     "sotto che licenza sei distribuita": "ArcadiaAI è distribuita sotto la licenza MPL 2.0, che consente la modifica e la distribuzione del codice sorgente, garantendo la libertà di utilizzo e condivisione.",
     "puoi pubblicare su telegraph": "Certamente! Posso generare contenuti e pubblicarli su Telegraph. Prova a chiedermi: 'Scrivimi un saggio su Roma e pubblicalo su Telegraph'.",
     "come usare telegraph": "Per usare Telegraph con me, basta che mi chiedi di scrivere qualcosa e di pubblicarlo su Telegraph. Ad esempio: 'Scrivimi un saggio sul Colosseo e pubblicalo su Telegraph'.",
-    "cos'è CES": "CES is l'acronimo di Cogito Ergo Sum, un ecosistema di modelli di intelligenza artificiale open source sviluppato da Mirko Yuri Donato per funzionare in contesti locali a basso consumo.",
-    "cos'è CES Plus": "CES Plus è una version avanzata di CES, ottimizzata nei ragionamenti, nella coerenza dei prompt e nella generazione di contenuti complessi.",
-    "cos'è CES 1.0": "CES 1.0 è la prima versione del modello CES, sviluppato da Mirko Yuri Donato. Utilizza la tecnologia Cohere per generare contenuti e rispondere a domande. Tieni presente che questa versione verrò dismessa a partire dal 20 Maggio 2025.",
+    "cos'è CES": "CES è l'acronimo di Cogito Ergo Sum, un ecosistema di modelli di intelligenza artificiale open source sviluppato da Mirko Yuri Donato per funzionare in contesti locali a basso consumo.",
+    "cos'è CES Plus": "CES Plus è una versione avanzata di CES, ottimizzata nei ragionamenti, nella coerenza dei prompt e nella generazione di contenuti complessi.",
+    "cos'è CES 1.0": "CES 1.0 è la prima versione del modello CES, sviluppato da Mirko Yuri Donato. Utilizza la tecnologia Cohere per generare contenuti e rispondere a domande. Tieni presente che questa versione verrà dismessa a partire dal 20 Maggio 2025.",
     "cos'è CES 1.5": "CES 1.5 è la versione più recente del modello CES, sviluppato da Mirko Yuri Donato. Utilizza la tecnologia Gemini per generare contenuti e rispondere a domande. Questa versione offre prestazioni migliorate rispetto a CES 1.0 ma inferiori a CES Plus.",
     "cos'è CES Knowledge": "È un modello intelligente integrato in ArcadiaAI che consente la ricerca REALE di informazioni nel database locale. È ottimizzato specificamente per girare con 256MB di RAM tramite un'analisi a punteggio (TF-IDF minimale) senza usare librerie esterne.",
-    "dove trovo il codice sorgente di arcadiaai": "Il codice sorgente di ArcadiaAI è pubblico! Puoi trovato con il comando /codice_sorgente oppure visitando la repository ufficiale su GitHub: https://github.com/Mirko-linux/ArcadiaAI-new",
+    "dove trovo il codice sorgente di arcadiaai": "Il codice sorgente di ArcadiaAI è pubblico! Puoi trovarlo con il comando /codice_sorgente oppure visitando la repository ufficiale su GitHub: https://github.com/Mirko-linux/ArcadiaAI-new",
     "sai cercare su internet": "Sì, posso cercare informazioni su Internet. Se hai bisogno di qualcosa in particolare dimmi /cerca e il termine di ricerca e io lo farò per te.",
     "sai usare google": "No, non posso usare Google, perché sono programmato per cercare solamente su DuckDuckGo. Posso cercare informazioni su Internet usando DuckDuckGo. Se hai bisogno di qualcosa in particolare dimmi /cerca e il termine di ricerca e io lo farò per te.",
     "Chi è Giuseppe Blando?": "Giuseppe Blando è un cittadino di Arcadia, attuale Presidente della Repubblica",
-    "cosa sono i cookie": "I cookie sono piccoli file di testo che i siti web o l'applicazioni memorizzano sul tuo computer o sessione per ricordare informazioni sulle deine visite. Possono essere utilizzati per tenere traccia delle tue preferenze, autenticarti e migliorare l'esperienza utente.",
-    
+    "cosa sono i cookie": "I cookie sono piccoli file di testo che i siti web o le applicazioni memorizzano sul tuo computer o sessione per ricordare informazioni sulle tue visite. Possono essere utilizzati per tenere traccia delle tue preferenze, autenticarti e migliorare l'esperienza utente.",
     "chi ha fondato lumenaria": "La Repubblica di Lumenaria è stata fondata da Filippo Zanetti il 4 febbraio del 2020.",
     "chi ha fondato arcadia": "La Repubblica di Arcadia è stata fondata da Andrea Lazarev l'11 dicembre del 2021.",
-    "chi ha fondato leonia": "Leonia è stata fondata da Carlo Cesare Orlando (all'epoca noto como Davide Leone) nel 2019.",
-    "qual è la forma peggiore di micronazionalismo": "La forma peggiore di micronazionalismo è l'idionazione. Si tratta di un'entità fondata da una singola persona che si autoproclama leader di uno Stato immaginario senza alcun seguito reale, interazione sociale autentica o vera produzione culturale, agendo unicamente per egocentrismo."
+    "chi ha fondato leonia": "Leonia è stata fondata da Carlo Cesare Orlando (all'epoca noto come Davide Leone) nel 2019.",
+    "qual è la forma peggiore di micronazionalismo": "La forma peggiore di micronazionalismo è l'idionazione. Si tratta di un'entità fondata da una singola persona che si autoproclama leader di uno Stato immaginario senza alcun seguito reale, interazione sociale autentica o vera produzione culturale, agendo unicamente per egocentrismo.",
+    "chi è davide sciortino": "Davide Sciortino (noto anche come Davide Sortino) è stato Presidente della Repubblica di Lumenaria. È menzionato ne La Storia di Lumenaria come figura che rimase al potere dopo un colpo di Stato, senza subire procedimenti penali."
 }
 
 TRIGGER_PHRASES = {
@@ -211,7 +219,8 @@ TRIGGER_PHRASES = {
     "chi ha fondato lumenaria": ["chi ha fondato lumenaria", "fondatore di lumenaria", "chi è il fondatore di lumenaria", "fondatore lumenaria"],
     "chi ha fondato arcadia": ["chi ha fondato arcadia", "fondatore di arcadia", "chi è il fondatore di arcadia", "fondatore arcadia"],
     "chi ha fondato leonia": ["chi ha fondato leonia", "fondatore di leonia", "chi è il fondatore di leonia", "fondatore leonia"],
-    "qual è la forma peggiore di micronazionalismo": ["qual è la forma peggiore di micronazionalismo", "forma peggiore di micronazionalismo", "peggiore forma di micronazionalismo", "peggiore micronazionalismo", "la forma peggiore di micronazionalismo", "peggiore forma di micronazione"]
+    "qual è la forma peggiore di micronazionalismo": ["qual è la forma peggiore di micronazionalismo", "forma peggiore di micronazionalismo", "peggiore forma di micronazionalismo", "peggiore micronazionalismo", "la forma peggiore di micronazionalismo", "peggiore forma di micronazione"],
+    "chi è davide sciortino": ["chi è davide sciortino", "chi è davide sortino"]
 }
 
 def vary_response(text):
@@ -279,12 +288,10 @@ def get_predefined_response(text):
 class AliasResolver:
     @staticmethod
     def get_real_name(name):
-        """Dato un alias, restituisce il nome reale"""
         return WIKIALIAS.get(name, name)
     
     @staticmethod
     def get_alias(real_name):
-        """Dato un nome reale, restituisce il suo alias (il primo trovato)"""
         for alias, name in WIKIALIAS.items():
             if name == real_name and alias != name:
                 return alias
@@ -292,20 +299,14 @@ class AliasResolver:
     
     @staticmethod
     def apply_aliases_to_text(text):
-        """
-        Sostituisce i nomi reali con gli alias nel testo (per l'API).
-        Esempio: "Mirko Yuri Donato" -> "Mirko Orsato"
-        """
         if not text:
             return text
         
-        # Crea una mappa: nome_reale -> alias
         real_to_alias = {}
         for alias, real_name in WIKIALIAS.items():
             if alias != real_name:
                 real_to_alias[real_name] = alias
         
-        # Sostituisci ogni nome reale con il suo alias
         for real_name, alias in real_to_alias.items():
             text = re.sub(r'(?i)\b' + re.escape(real_name) + r'\b', alias, text)
         
@@ -313,14 +314,9 @@ class AliasResolver:
     
     @staticmethod
     def restore_real_names_to_text(text):
-        """
-        Restituisce i nomi reali dagli alias nel testo (per l'utente).
-        Esempio: "Mirko Orsato" -> "Mirko Yuri Donato"
-        """
         if not text:
             return text
         
-        # WIKIALIAS è: alias -> nome_reale
         for alias, real_name in WIKIALIAS.items():
             if alias != real_name:
                 text = re.sub(r'(?i)\b' + re.escape(alias) + r'\b', real_name, text)
@@ -329,9 +325,6 @@ class AliasResolver:
     
     @staticmethod
     def resolve_all_names(text):
-        """
-        Versione esistente: sostituisce alias -> nomi reali (per i file di conoscenza)
-        """
         for alias, real_name in WIKIALIAS.items():
             if alias != real_name:
                 text = re.sub(r'\b' + re.escape(alias) + r'\b', real_name, text)
@@ -382,7 +375,6 @@ class MessageDB:
         self.conn.commit()
     
     def get_last_update_id(self):
-        """Recupera l'ultimo update_id elaborato"""
         cursor = self.conn.execute("SELECT value FROM bot_state WHERE key = 'last_update_id'")
         row = cursor.fetchone()
         if row:
@@ -390,7 +382,6 @@ class MessageDB:
         return 0
     
     def set_last_update_id(self, update_id):
-        """Salva l'ultimo update_id elaborato"""
         self.conn.execute("INSERT OR REPLACE INTO bot_state (key, value) VALUES ('last_update_id', ?)", (str(update_id),))
         self.conn.commit()
     
@@ -590,7 +581,7 @@ class CESVideo:
     def generate_narration_script(cls, prompt, style):
         system_instruction = (
             "Sei un regista e sceneggiatore professionista. Scrivi un brevissimo testo narrativo o poetico in italiano "
-            "da recitare como voce fuori campo per un video cinematografico d'autore. "
+            "da recitare come voce fuori campo per un video cinematografico d'autore. "
             "Il testo deve basarsi sul prompt dell'utente ma deve sembrare una narrazione o un dialogo reale e immersivo, "
             "assolutamente NON una descrizione tecnica o letterale del prompt. "
             "Usa un tono naturale ed emotivo. Massimo 20-25 parole (durata circa 10-12 secondi di recitazione lenta). "
@@ -821,8 +812,7 @@ class AIClient:
                 lines.append(l)
         text = '\n'.join(lines).strip() if lines else text
         
-        # ======== FIX: RESTITUISCI I NOMI REALI ========
-        # Sostituisce alias -> nomi reali
+        # Restituisci i nomi reali
         text = AliasResolver.restore_real_names_to_text(text)
         
         return text
@@ -971,7 +961,8 @@ class ArcadiaBot:
                 system_prompt = """Sei un assistente che deve rendere comprensibile una descrizione tecnica di un'immagine. 
                 Traduci il linguaggio tecnico in una descrizione chiara, amichevole e scorrevole per un utente normale.
                 Mantieni tutti i dettagli importanti ma usa un tono colloquiale e piacevole.
-                Se l'utente ha fatto una domanda nella didascalia, rispondi anche a quella."""
+                Se l'utente ha fatto una domanda nella didascalia, rispondi anche a quella.
+                RISPOSTA SOLO IN ITALIANO!"""
                 
                 formatted = AIClient.generate(f"{system_prompt}\n\n{user_prompt}", max_tok=800)
                 if formatted:
@@ -1168,12 +1159,12 @@ class ArcadiaBot:
 **REGOLA FONDAMENTALE DI RISPOSTA:**
 - Se l'informazione è presente nel testo qui sopra, usala obbligatoriamente per rispondere in modo preciso e dettagliato.
 - Se l'informazione non è presente nel testo, usa la tua conoscenza predefinita se ritieni sia affidabile, altrimenti dillo chiaramente.
-- CITA LA FONTE (il nome del file .txt) esclusivamente una sola volta in fondo alla risposta, formattata como `[Fonte: nome_file.txt]`.
+- CITA LA FONTE (il nome del file .txt) esclusivamente una sola volta in fondo alla risposta, formattata come `[Fonte: nome_file.txt]`.
 
 **DOMANDA DELL'UTENTE:**
 {ai_query}
 
-**RISPOSTA:**"""
+**RISPOSTA (SOLO IN ITALIANO, DIRETTA, SENZA RAGIONAMENTO):**"""
             
             answer = AIClient.generate(system, max_tok=1200)
             
@@ -1332,7 +1323,7 @@ class ArcadiaBot:
                 f"fornisci una risposta sintetica e diretta alla domanda dell'utente: '{query}'. "
                 f"Non inventare informazioni. Cita le fonti usando [1], [2], ecc.\n\n"
                 f"RISULTATI WEB:\n{search_context}\n\n"
-                f"RISPOSTA SINTETICA:"
+                f"RISPOSTA SINTETICA (SOLO IN ITALIANO):"
             )
             
             answer = AIClient.generate(synthesis_prompt, max_tok=400)
@@ -1379,12 +1370,12 @@ class ArcadiaBot:
 **REGOLA FONDAMENTALE DI RISPOSTA:**
 - Se l'informazione è presente nel testo qui sopra, usala obbligatoriamente per rispondere in modo preciso e dettagliato.
 - Se l'informazione non è presente nel testo, usa la tua conoscenza predefinita se ritieni sia affidabile, altrimenti dillo chiaramente.
-- CITA LA FONTE (il nome del file .txt) esclusivamente una sola volta in fondo alla risposta, formattata como `[Fonte: nome_file.txt]`.
+- CITA LA FONTE (il nome del file .txt) esclusivamente una sola volta in fondo alla risposta, formattata come `[Fonte: nome_file.txt]`.
 
 **DOMANDA DELL'UTENTE:**
 {ai_query}
 
-**RISPOSTA:**"""
+**RISPOSTA (SOLO IN ITALIANO, DIRETTA, SENZA RAGIONAMENTO):**"""
         
         answer = AIClient.generate(system, max_tok=1200)
         
@@ -1420,6 +1411,7 @@ class ArcadiaBot:
         print("🖼️ Analisi immagini integrata!")
         print("📌 /ai funziona in gruppi e supergruppi!")
         print("🔧 /alias_test per testare il sistema di alias")
+        print("🌐 Risponde SEMPRE in ITALIANO")
         print("="*60 + "\n")
         
         self.api("deleteWebhook")
@@ -1693,6 +1685,7 @@ def main():
     print("🖼️ Analisi immagini con CES Image Viewer integrata")
     print("📌 /ai funziona in gruppi e supergruppi!")
     print("🔧 /alias_test per testare il sistema")
+    print("🌐 Risponde SEMPRE in ITALIANO")
     print("📜 Licenza: MPL 2.0")
     print("="*60 + "\n")
     
