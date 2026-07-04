@@ -15,18 +15,157 @@ import subprocess
 import threading
 import shutil
 import math
+import requests
+import socket
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+from urllib3.util import connection
 from datetime import datetime, timedelta
 from collections import defaultdict
 from pathlib import Path
+from dataclasses import dataclass, field
+from typing import List, Dict, Optional, Any
+import queue
 
-# Tentativo di importazione di CES Image Viewer (deve risiedere nella stessa cartella)
+# ==================== BYPASS DNS CON UDP DNS RESOLVER NATIVO (RFC 1035) ====================
+def udp_dns_resolve(host, dns_server="8.8.8.8"):
+    try:
+        tx_id = os.urandom(2)
+        flags = b"\x01\x00"
+        qdcount = b"\x00\x01"
+        ancount = b"\x00\x00"
+        nscount = b"\x00\x00"
+        arcount = b"\x00\x00"
+        header = tx_id + flags + qdcount + ancount + nscount + arcount
+        
+        query_name = b""
+        for part in host.split("."):
+            query_name += bytes([len(part)]) + part.encode("utf-8")
+        query_name += b"\x00"
+        
+        query_type_class = b"\x00\x01\x00\x01"
+        packet = header + query_name + query_type_class
+        
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.settimeout(3.5)
+        sock.sendto(packet, (dns_server, 53))
+        
+        data, _ = sock.recvfrom(1024)
+        sock.close()
+        
+        idx = len(packet)
+        while idx < len(data):
+            if idx >= len(data):
+                break
+            if data[idx] >= 192:
+                idx += 2
+            else:
+                while idx < len(data) and data[idx] != 0:
+                    idx += data[idx] + 1
+                idx += 1
+            
+            if idx + 10 > len(data):
+                break
+                
+            r_type = data[idx : idx + 2]
+            r_len = int.from_bytes(data[idx + 8 : idx + 10], "big")
+            idx += 10
+            
+            if idx + r_len > len(data):
+                break
+                
+            if r_type == b"\x00\x01" and r_len == 4:
+                return ".".join(str(b) for b in data[idx : idx + r_len])
+            idx += r_len
+    except Exception as e:
+        print(f"⚠️ [UDP DNS] Query fallita su {dns_server} per {host}: {e}")
+    return None
+
+def doh_resolve(host):
+    try:
+        url = f"https://8.8.8.8/resolve?name={host}&type=A"
+        import urllib3
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        r = requests.get(url, headers={"Host": "dns.google"}, verify=False, timeout=5)
+        if r.status_code == 200:
+            data = r.json()
+            if "Answer" in data:
+                for ans in data["Answer"]:
+                    if ans.get("type") == 1:
+                        return ans.get("data")
+    except Exception as e:
+        print(f"⚠️ [DoH Resolver] Errore Google DoH per {host}: {e}")
+    
+    try:
+        url = "https://1.1.1.1/dns-query"
+        headers = {"accept": "application/dns-json", "Host": "cloudflare-dns.com"}
+        r = requests.get(f"{url}?name={host}&type=A", headers=headers, verify=False, timeout=5)
+        if r.status_code == 200:
+            data = r.json()
+            if "Answer" in data:
+                for ans in data["Answer"]:
+                    if ans.get("type") == 1:
+                        return ans.get("data")
+    except Exception as e:
+        print(f"⚠️ [DoH Resolver] Errore Cloudflare DoH per {host}: {e}")
+    return None
+
+_orig_create_connection = connection.create_connection
+
+def patched_create_connection(address, *args, **kwargs):
+    host, port = address
+    if host in ["api-inference.huggingface.co", "huggingface.co"]:
+        try:
+            addresses = socket.getaddrinfo(host, port, socket.AF_INET)
+            if addresses:
+                ip = addresses[0][4][0]
+                return _orig_create_connection((ip, port), *args, **kwargs)
+        except Exception as e:
+            print(f"⚠️ [DNS Patch] Risoluzione locale fallita per {host}: {e}")
+        
+        ip = udp_dns_resolve(host, "8.8.8.8")
+        if ip:
+            print(f"🌐 [DNS Patch] Risolto via UDP DNS (Google): {host} -> {ip}")
+            return _orig_create_connection((ip, port), *args, **kwargs)
+            
+        ip = udp_dns_resolve(host, "1.1.1.1")
+        if ip:
+            print(f"🌐 [DNS Patch] Risolto via UDP DNS (Cloudflare): {host} -> {ip}")
+            return _orig_create_connection((ip, port), *args, **kwargs)
+        
+        ip = doh_resolve(host)
+        if ip:
+            print(f"🌐 [DNS Patch] Risolto via DoH: {host} -> {ip}")
+            return _orig_create_connection((ip, port), *args, **kwargs)
+        
+        print(f"🔌 [DNS Patch] DoH fallito per {host}. Connessione diretta via Cloudflare CDN...")
+        fallback_ips = [
+            "104.18.22.170",
+            "104.18.23.170",
+            "172.67.68.21",
+            "104.26.0.134",
+            "104.26.1.134"
+        ]
+        random.shuffle(fallback_ips)
+        for f_ip in fallback_ips:
+            try:
+                print(f"🌐 [DNS Patch] Reindirizzamento diretto di emergenza SNI: {host} -> {f_ip}")
+                return _orig_create_connection((f_ip, port), *args, **kwargs)
+            except Exception as conn_err:
+                print(f"⚠️ [DNS Patch] Errore connessione diretta a {f_ip}: {conn_err}")
+                
+        print(f"❌ [DNS Patch] Tutti i tentativi di risoluzione e aggiramento DNS sono falliti per {host}.")
+            
+    return _orig_create_connection(address, *args, **kwargs)
+
+connection.create_connection = patched_create_connection
+
 try:
     from ces_image_viewer import CESImageViewer
     HAS_IMAGE_VIEWER = True
 except ImportError:
     HAS_IMAGE_VIEWER = False
 
-# ==================== CARICA .env ====================
 SCRIPT_DIR = Path(__file__).parent if '__file__' in dir() else Path.cwd()
 ENV_PATH = SCRIPT_DIR / '.env'
 
@@ -43,9 +182,37 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 DEVELOPER_USER_ID = int(os.getenv("DEVELOPER_USER_ID", "0"))
 
+HF_TOKEN = os.getenv("HUGGINGFACE_TOKEN", "")
+HF_MODEL = "mirkodonato08/CES-360"
+HF_API_URL = f"https://api-inference.huggingface.co/models/{HF_MODEL}"
+HF_HEADERS = {"Authorization": f"Bearer {HF_TOKEN}"} if HF_TOKEN else {}
+
+def create_requests_session():
+    session = requests.Session()
+    retry_strategy = Retry(
+        total=5,
+        backoff_factor=3,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["GET", "POST"]
+    )
+    adapter = HTTPAdapter(
+        max_retries=retry_strategy,
+        pool_connections=10,
+        pool_maxsize=10
+    )
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    session.timeout = (15, 90)
+    return session
+
+REQUESTS_SESSION = create_requests_session()
+
 if not TELEGRAM_BOT_TOKEN:
-    print("❌ TELEGRAM_BOT_TOKEN mancante!")
+    print("❌ TELEGRAM_BOT_TOKEN mancante nel file .env!")
     sys.exit(1)
+
+if not HF_TOKEN:
+    print("⚠️ HUGGINGFACE_TOKEN mancante! I comandi /ces-360 e /img_plus non funzioneranno con modelli privati o limitati.")
 
 DATA_FOLDER = SCRIPT_DIR / "data"
 TEMP_FOLDER = SCRIPT_DIR / "temp"
@@ -58,7 +225,6 @@ VIDEO_FOLDER.mkdir(exist_ok=True)
 
 gc.set_threshold(100, 5, 5)
 
-# ==================== WIKIALIAS ====================
 def load_wikialias():
     if WIKIALIAS_PATH.exists():
         try:
@@ -76,7 +242,6 @@ for alias, real_name in WIKIALIAS.items():
     if alias != real_name:
         REAL_TO_ALIAS[real_name].append(alias)
 
-# ==================== IDENTITY PROMPT (CORRETTO - FORZA ITALIANO) ====================
 IDENTITY_PROMPT = """Sei **ArcadiaAI**, un assistente intelligente open-source creato da Mirko Yuri Donato. 
 Licenza: MPL 2.0.
 
@@ -134,28 +299,27 @@ Sei esperto di:
 3. **Priorità 3:** Se disponibile, usa la ricerca web
 4. **Priorità 4:** Se nessuna fonte, dillo onestamente"""
 
-# ==================== RISPOSTE PREDEFINITE ====================
 RISPOSTE_PREDEFINITE = {
     "chi sei": "Sono ArcadiaAI, un chatbot libero e open source, creato da Mirko Yuri Donato.",
     "cosa sai fare": "Posso aiutarti a scrivere saggi, fare ricerche e rispondere a tutto ciò che mi chiedi. Inoltre, posso pubblicare contenuti su Telegraph!",
     "chi è tobia testa": "Tobia Testa (anche noto come Tobia Teseo) è un micronazionalista leonense noto per la sua attività nella Repubblica di Arcadia, ma ha anche rivestito ruoli fondamentali a Lumenaria.",
-    "chi è mirko yuri donato": "Mirko Yuri Donato è un giovane micronazionalista, poeta e saggista italiano, noto per aver creato Nova Surf, Leonia+ e per le sue opere letterarie.",
+    "chi è mirko yuri donato": "Mirko Yuri Donato è un giovane micronazionalista, poeta e saggista italiano, noto per aver creato Nova Surf, Leonia+ e per le sus opere letterarie.",
     "chi è il presidente di arcadia": "Il presidente di Arcadia è Andrea Lazarev.",
     "chi è il presidente di lumenaria": "Il presidente di Lumenaria attualmente è Carlo Cesare Orlando, mentre il presidente del consiglio è Ciua Grazisky. Tieni presente però che attualmente Lumenaria si trova in ibernazione istituzionale, quindi tutte le attività politiche sono sospese e la gestione dello stato è affidata al Consiglio di Fiducia.",
-    "cos'è nova surf": "Nova Surf è un browser web libero e open source, nato come un'alternativa made-in-Italy a Google Chrome, Microsoft Edge, eccetera.",
+    "cos'è nova surf": "Nova Surf is un browser web libero e open source, nato como un'alternativa made-in-Italy a Google Chrome, Microsoft Edge, eccetera.",
     "chi ti ha creato": "Sono stato creato da Mirko Yuri Donato.",
     "chi è ciua grazisky": "Ciua Grazisky è un cittadino di Lumenaria, noto principalmente per il suo ruolo da Dirigente del Corpo di Polizia ed attuale presidente del Consiglio di Lumenaria.",
     "chi è carlo cesare orlando": "Carlo Cesare Orlando (anche noto come Davide Leone) è un micronazionalista italiano, noto per aver creato Leonia, la micronazione primordiale, da cui derivano Arcadia e Lumenaria.",
     "chi è omar lanfredi": "Omar Lanfredi è un politico micronazionale attivo in Lumenaria, Iberia e Lotaringia. È stato sei volte senatore, tre volte Ministro della Cultura, due volte Presidente del Consiglio dei Ministri a Lumenaria, e ha ricoperto ruoli di primo piano anche in Iberia e Lotaringia.",
     "cos'è arcadiaai": "Ottima domanda! ArcadiaAI è un chatbot open source, progettato per aiutarti a scrivere saggi, fare ricerche e rispondere a domande su vari argomenti. É stato creato da Mirko Yuri Donato ed è in continua evoluzione.",
     "sotto che licenza è distribuito arcadiaa": "ArcadiaAI è distribuito sotto la licenza open source MPL 2.0 (Mozilla Public License 2.0).",
-    "cosa sono le micronazioni": "Le micronazioni sono entità politiche che dichiarano la sovranità su un territorio, ma non sono riconosciute come stati da governi o organizzazioni internazionali. Possono essere create per vari motivi, tra cui esperimenti sociali, culturali o politici.",
+    "cosa sono le micronazioni": "Le micronazioni sono entità politiche che dichiarano la sovranità su un territorio, ma non sono riconosciute como stati da governi o organizzazioni internazionali. Possono essere create per vari motivi, tra cui esperimenti sociali, culturali o politici.",
     "cos'è la repubblica di arcadia": "La Repubblica di Arcadia è una micronazione leonense fondata l'11 dicembre 2021 da Andrea Lazarev e alcuni suoi seguaci. Arcadia si distingue dalle altre micronazioni leonensi per il suo approccio pragmatico e per la sua burocrazia snella. La micronazione ha anche un proprio sito web https://repubblicadiarcadia.it/ e una propria community su Telegram @Repubblica_Arcadia.",
     "cos'è la repubblica di lumenaria": "La Repubblica di Lumenaria è una micronazione fondata da Filippo Zanetti il 4 febbraio del 2020. Lumenaria è stata la micronazione più longeva della storia leonense, essendo sopravvissuta per oltre 3 anni. La micronazione ha influenzato profondamente le altre micronazioni leonensi, che hanno coesistito con essa. Tra i motivi della sua longevità ci sono la sua burocrazia più vicina a quella di uno stato reale, la sua comunità attiva e una produzione culturale di alto livello.",
     "chi è salvatore giordano": "Salvatore Giordano è un cittadino storico di Lumenaria.",
     "da dove deriva il nome arcadia": "Il nome Arcadia deriva da un'antica regione della Grecia, simbolo di bellezza naturale e armonia. È stato scelto per rappresentare i valori di libertà e creatività che la micronazione promuove.",
     "da dove deriva il nome lumenaria": "Il nome Lumenaria prende ispirazione dai lumi facendo riferimento alla corrente illuminista del '700, ma anche da Piazza dei Lumi, sede dell'Accademia delle Micronazioni.",
-    "da dove deriva il nome leonia": "Il nome Leonia si rifà al cognome del suo fondatore Carlo Cesare Orlando, al tempo Davide Leone. Inizialmente il nome doveva essere temporaneo, ma poi è stato mantenuto come nome della micronazione.",
+    "da dove deriva il nome leonia": "Il nome Leonia si rifà al cognome del suo fondatore Carlo Cesare Orlando, al tempo Davide Leone. Inizialmente il nome doveva essere temporaneo, ma poi è stato mantenuto como nome della micronazione.",
     "cosa si intende per open source": "Il termine 'open source' si riferisce a software il cui codice sorgente è reso disponibile al pubblico, consentendo a chiunque di visualizzarlo, modificarlo e distribuirlo. Questo approccio promuove la collaborazione e l'innovazione nella comunità di sviluppo software.",
     "arcadiaai è un software libero": "Sì, ArcadiaAI è un software libero e open source, il che significa che chiunque può utilizzarlo, modificarlo e distribuirlo liberamente in conformità con i termini della sua licenza MPL 2.0.",
     "cos'è un chatbot": "Un chatbot è un programma informatico progettato per simulare una conversazione con gli utenti, spesso utilizzando tecnologie di intelligenza artificiale. I chatbot possono essere utilizzati per fornire assistenza, rispondere a domande o semplicemente intrattenere.",
@@ -164,7 +328,7 @@ RISPOSTE_PREDEFINITE = {
     "come usare telegraph": "Per usare Telegraph con me, basta che mi chiedi di scrivere qualcosa e di pubblicarlo su Telegraph. Ad esempio: 'Scrivimi un saggio sul Colosseo e pubblicalo su Telegraph'.",
     "cos'è CES": "CES è l'acronimo di Cogito Ergo Sum, un ecosistema di modelli di intelligenza artificiale open source sviluppato da Mirko Yuri Donato per funzionare in contesti locali a basso consumo.",
     "cos'è CES Plus": "CES Plus è una versione avanzata di CES, ottimizzata nei ragionamenti, nella coerenza dei prompt e nella generazione di contenuti complessi.",
-    "cos'è CES 1.0": "CES 1.0 è la prima versione del modello CES, sviluppato da Mirko Yuri Donato. Utilizza la tecnologia Cohere per generare contenuti e rispondere a domande. Tieni presente che questa versione verrà dismessa a partire dal 20 Maggio 2025.",
+    "cos'è CES 1.0": "CES 1.0 è la prima versione del modello CES, sviluppato da Mirko Yuri Donato. Utilizza la tecnologia Cohere per generare contenuti e rispondere a domande. Tieni presente che questa versione verra dismessa a partire dal 20 Maggio 2025.",
     "cos'è CES 1.5": "CES 1.5 è la versione più recente del modello CES, sviluppato da Mirko Yuri Donato. Utilizza la tecnologia Gemini per generare contenuti e rispondere a domande. Questa versione offre prestazioni migliorate rispetto a CES 1.0 ma inferiori a CES Plus.",
     "cos'è CES Knowledge": "È un modello intelligente integrato in ArcadiaAI che consente la ricerca REALE di informazioni nel database locale. È ottimizzato specificamente per girare con 256MB di RAM tramite un'analisi a punteggio (TF-IDF minimale) senza usare librerie esterne.",
     "dove trovo il codice sorgente di arcadiaai": "Il codice sorgente di ArcadiaAI è pubblico! Puoi trovarlo con il comando /codice_sorgente oppure visitando la repository ufficiale su GitHub: https://github.com/Mirko-linux/ArcadiaAI-new",
@@ -174,8 +338,8 @@ RISPOSTE_PREDEFINITE = {
     "cosa sono i cookie": "I cookie sono piccoli file di testo che i siti web o le applicazioni memorizzano sul tuo computer o sessione per ricordare informazioni sulle tue visite. Possono essere utilizzati per tenere traccia delle tue preferenze, autenticarti e migliorare l'esperienza utente.",
     "chi ha fondato lumenaria": "La Repubblica di Lumenaria è stata fondata da Filippo Zanetti il 4 febbraio del 2020.",
     "chi ha fondato arcadia": "La Repubblica di Arcadia è stata fondata da Andrea Lazarev l'11 dicembre del 2021.",
-    "chi ha fondato leonia": "Leonia è stata fondata da Carlo Cesare Orlando (all'epoca noto come Davide Leone) nel 2019.",
-    "qual è la forma peggiore di micronazionalismo": "La forma peggiore di micronazionalismo è l'idionazione. Si tratta di un'entità fondata da una singola persona che si autoproclama leader di uno Stato immaginario senza alcun seguito reale, interazione sociale autentica o vera produzione culturale, agendo unicamente per egocentrismo.",
+    "chi ha fondato leonia": "Leonia è stata fondata da Carlo Cesare Orlando (all'epoca noto como Davide Leone) nel 2019.",
+    "qual è la forma peggiore di micronazionalismo": "La forma peggiore di micronazionalismo is l'idionazione. Si tratta di un'entità fondata da una singola persona che si autoproclama leader di uno Stato immaginario senza alcun seguito reale, interazione sociale autentica o vera produzione culturale, agendo unicamente per egocentrismo.",
     "chi è davide sciortino": "Davide Sciortino (noto anche come Davide Sortino) è stato Presidente della Repubblica di Lumenaria. È menzionato ne La Storia di Lumenaria come figura che rimase al potere dopo un colpo di Stato, senza subire procedimenti penali."
 }
 
@@ -220,7 +384,8 @@ TRIGGER_PHRASES = {
     "chi ha fondato arcadia": ["chi ha fondato arcadia", "fondatore di arcadia", "chi è il fondatore di arcadia", "fondatore arcadia"],
     "chi ha fondato leonia": ["chi ha fondato leonia", "fondatore di leonia", "chi è il fondatore di leonia", "fondatore leonia"],
     "qual è la forma peggiore di micronazionalismo": ["qual è la forma peggiore di micronazionalismo", "forma peggiore di micronazionalismo", "peggiore forma di micronazionalismo", "peggiore micronazionalismo", "la forma peggiore di micronazionalismo", "peggiore forma di micronazione"],
-    "chi è davide sciortino": ["chi è davide sciortino", "chi è davide sortino"]
+    "chi è davide sciortino": ["chi è davide sciortino", "chi è davide sortino"],
+    "/clear_memory": ["/clear_memory", "/cancella_memoria", "/reset_memory"]
 }
 
 def vary_response(text):
@@ -284,7 +449,6 @@ def get_predefined_response(text):
     
     return None
 
-# ==================== ALIAS RESOLVER ====================
 class AliasResolver:
     @staticmethod
     def get_real_name(name):
@@ -330,7 +494,6 @@ class AliasResolver:
                 text = re.sub(r'\b' + re.escape(alias) + r'\b', real_name, text)
         return text
 
-# ==================== DATABASE ===================
 class MessageDB:
     def __init__(self, db_path):
         self.conn = sqlite3.connect(str(db_path), check_same_thread=False)
@@ -345,6 +508,24 @@ class MessageDB:
             key TEXT PRIMARY KEY,
             value TEXT
         )""")
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS conversation_memory (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                chat_id INTEGER,
+                role TEXT,
+                content TEXT,
+                timestamp REAL
+            )
+        """)
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS user_preferences (
+                user_id INTEGER PRIMARY KEY,
+                memory_enabled INTEGER DEFAULT 1,
+                memory_limit INTEGER DEFAULT 20,
+                updated_at REAL
+            )
+        """)
         
         try:
             self.conn.execute("ALTER TABLE bypass_purchases ADD COLUMN verified INTEGER DEFAULT 0")
@@ -373,6 +554,76 @@ class MessageDB:
             )
         """)
         self.conn.commit()
+    
+    def save_conversation(self, user_id, chat_id, role, content):
+        self.conn.execute(
+            "INSERT INTO conversation_memory (user_id, chat_id, role, content, timestamp) VALUES (?,?,?,?,?)",
+            (user_id, chat_id, role, content, time.time())
+        )
+        self.conn.commit()
+        self.clean_old_memory(user_id, chat_id)
+    
+    def get_conversation_context(self, user_id, chat_id, limit=10):
+        cursor = self.conn.execute(
+            """SELECT role, content FROM conversation_memory 
+               WHERE user_id=? AND chat_id=? 
+               ORDER BY timestamp DESC LIMIT ?""",
+            (user_id, chat_id, limit)
+        )
+        rows = cursor.fetchall()
+        
+        context = []
+        for role, content in reversed(rows):
+            if role == "user":
+                context.append(f"Utente: {content}")
+            else:
+                context.append(f"ArcadiaAI: {content}")
+        
+        return "\n".join(context)
+    
+    def clean_old_memory(self, user_id, chat_id, max_messages=30):
+        cursor = self.conn.execute(
+            "SELECT COUNT(*) FROM conversation_memory WHERE user_id=? AND chat_id=?",
+            (user_id, chat_id)
+        )
+        count = cursor.fetchone()[0]
+        
+        if count > max_messages:
+            cursor = self.conn.execute(
+                "SELECT id FROM conversation_memory WHERE user_id=? AND chat_id=? ORDER BY timestamp DESC LIMIT 1 OFFSET ?",
+                (user_id, chat_id, max_messages - 1)
+            )
+            row = cursor.fetchone()
+            if row:
+                limit_id = row[0]
+                self.conn.execute(
+                    "DELETE FROM conversation_memory WHERE user_id=? AND chat_id=? AND id < ?",
+                    (user_id, chat_id, limit_id)
+                )
+                self.conn.commit()
+    
+    def clear_memory(self, user_id, chat_id):
+        self.conn.execute(
+            "DELETE FROM conversation_memory WHERE user_id=? AND chat_id=?",
+            (user_id, chat_id)
+        )
+        self.conn.commit()
+    
+    def get_memory_status(self, user_id, chat_id):
+        cursor = self.conn.execute(
+            "SELECT COUNT(*) FROM conversation_memory WHERE user_id=? AND chat_id=?",
+            (user_id, chat_id)
+        )
+        count = cursor.fetchone()[0]
+        
+        cursor = self.conn.execute(
+            "SELECT timestamp FROM conversation_memory WHERE user_id=? AND chat_id=? ORDER BY timestamp DESC LIMIT 1",
+            (user_id, chat_id)
+        )
+        row = cursor.fetchone()
+        last_msg = datetime.fromtimestamp(row[0]).strftime('%d/%m %H:%M') if row else "Mai"
+        
+        return {"count": count, "last_message": last_msg}
     
     def get_last_update_id(self):
         cursor = self.conn.execute("SELECT value FROM bot_state WHERE key = 'last_update_id'")
@@ -486,12 +737,12 @@ class MessageDB:
     
     def cleanup(self):
         self.conn.execute("DELETE FROM processed WHERE date < ?", (int(time.time()) - 3600,))
+        self.conn.execute("DELETE FROM conversation_memory WHERE timestamp < ?", (int(time.time()) - 604800,))
         self.conn.commit()
     
     def close(self):
         self.conn.close()
 
-# ==================== ANTI-SPAM VIDEO ====================
 class VideoRateLimiter:
     def __init__(self):
         self.lock = threading.Lock()
@@ -500,7 +751,7 @@ class VideoRateLimiter:
     
     def can_process(self, user_id, db):
         if user_id == DEVELOPER_USER_ID and DEVELOPER_USER_ID != 0:
-            return True, "", 0
+            return True, ""
         with self.lock:
             can_gen, msg = db.can_generate_video(user_id)
             if not can_gen:
@@ -528,7 +779,6 @@ BYPASS_PRICES = {
     "7d": {"name": "Bypass 7 giorni", "arc": 500, "hours": 168},
 }
 
-# ==================== CES IMAGE ====================
 class CESImage:
     count = 0
     BANNED = ["nsfw", "porn", "nude", "gore", "blood"]
@@ -545,7 +795,86 @@ class CESImage:
         cls.count += 1
         return {"success": True, "image_url": url, "prompt": prompt}
 
-# ==================== CES VIDEO ====================
+class CESImagePlus:
+    count = 0
+    BANNED = ["nsfw", "porn", "nude", "gore", "blood"]
+    
+    @classmethod
+    def generate(cls, prompt):
+        if not prompt or len(prompt.strip()) < 2:
+            return {"success": False, "error": "Prompt troppo corto"}
+        
+        prompt = prompt.strip()[:500]
+        normalized = re.sub(r'\s+', '', prompt.lower())
+        for word in cls.BANNED:
+            if word in normalized:
+                return {"success": False, "error": "Contenuto bloccato per motivi di sicurezza."}
+                
+        model_id = "black-forest-labs/FLUX.1-schnell"
+        api_url = f"https://api-inference.huggingface.co/models/{model_id}"
+        headers = {"Authorization": f"Bearer {HF_TOKEN}"} if HF_TOKEN else {}
+        
+        enhanced_prompt = f"spectacular high-fidelity cinematic, masterwork, 8k resolution, highly detailed, photorealistic: {prompt}"
+        payload = {"inputs": enhanced_prompt}
+        
+        try:
+            print(f"🎨 [FLUX-HF] Tentativo primario per: {prompt[:80]}...")
+            if not HF_TOKEN:
+                raise ValueError("Nessun token Hugging Face trovato nel file .env!")
+                
+            response = REQUESTS_SESSION.post(
+                api_url,
+                headers=headers,
+                json=payload,
+                timeout=25
+            )
+            
+            if response.status_code == 200:
+                img_id = hashlib.md5(f"{prompt}{time.time()}".encode()).hexdigest()[:8]
+                img_path = TEMP_FOLDER / f"flux_{img_id}.png"
+                
+                with open(img_path, 'wb') as f:
+                    f.write(response.content)
+                    
+                cls.count += 1
+                return {"success": True, "image_path": img_path, "prompt": prompt, "fallback": False}
+                
+            elif response.status_code == 503:
+                print("⚠️ Modello HF in fase di avvio (503). Attivazione fallback di lusso...")
+                raise requests.exceptions.RequestException("Modello in fase di risveglio.")
+            else:
+                print(f"⚠️ Hugging Face ha risposto con codice {response.status_code}. Attivazione fallback di lusso...")
+                raise requests.exceptions.RequestException(f"HF Error {response.status_code}")
+                
+        except (requests.exceptions.RequestException, ValueError, Exception) as err:
+            print(f"🔌 Fallback FLUX alternativo attivato! Causa: {err}")
+            
+            fallback_model = "stabilityai/stable-diffusion-3.5-large"
+            fallback_api_url = f"https://api-inference.huggingface.co/models/{fallback_model}"
+            
+            try:
+                fallback_resp = REQUESTS_SESSION.post(
+                    fallback_api_url,
+                    headers=headers,
+                    json={"inputs": enhanced_prompt},
+                    timeout=30
+                )
+                
+                if fallback_resp.status_code == 200:
+                    img_id = hashlib.md5(f"{prompt}{time.time()}".encode()).hexdigest()[:8]
+                    img_path = TEMP_FOLDER / f"flux_fallback_{img_id}.png"
+                    
+                    with open(img_path, 'wb') as f:
+                        f.write(fallback_resp.content)
+                        
+                    cls.count += 1
+                    return {"success": True, "image_path": img_path, "prompt": prompt, "fallback": True}
+                else:
+                    return {"success": False, "error": f"Tutti i server Hugging Face di generazione immagine sono momentaneamente occupati. Codice errore: {fallback_resp.status_code}"}
+            except Exception as fe:
+                print(f"❌ Errore di connessione sul server secondario: {fe}")
+                return {"success": False, "error": "Rete o server di rendering non raggiungibili. Verifica la tua connessione internet locale."}
+
 class CESVideo:
     HEADERS = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
@@ -722,7 +1051,7 @@ class CESVideo:
             
         final_path = job_dir / "video_final.mp4"
         if audio_path.exists():
-            print(f"   🔗 Unisco Audio + Video Fluido con sincronizzazione PTS...")
+            print(f"   🔗 Unisco Audio + Video Fluido con aggiornamento PTS...")
             cmd_merge = [
                 ffmpeg, '-y',
                 '-i', str(video_temp), '-i', str(audio_path),
@@ -751,72 +1080,1430 @@ class CESVideo:
             "generated_narration": narration
         }
 
-# ==================== CLIENT AI ====================
 class AIClient:
     count = 0
     
+    GEMINI_MODELS = [
+        "gemini-2.5-flash",
+        "gemini-2.5-pro",
+        "gemini-2.5-flash-lite",
+    ]
+    
     @classmethod
     def generate(cls, prompt, max_tok=300):
-        # Applica gli alias al prompt (nome reale -> alias)
         prompt_with_aliases = AliasResolver.apply_aliases_to_text(prompt)
         
         if GEMINI_API_KEY:
-            try:
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={GEMINI_API_KEY}"
-                d = json.dumps({"contents":[{"parts":[{"text":prompt_with_aliases}]}],"generationConfig":{"maxOutputTokens":max_tok,"temperature":0.7}}).encode()
-                req = urllib.request.Request(url, data=d, headers={"Content-Type":"application/json"}, method='POST')
-                with urllib.request.urlopen(req, timeout=15) as r:
-                    j = json.loads(r.read().decode())
-                    if "candidates" in j:
-                        parts = j["candidates"][0]["content"]["parts"]
-                        result = ' '.join([p.get("text","") for p in parts])
-                        if result.strip():
+            for model in cls.GEMINI_MODELS:
+                try:
+                    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_API_KEY}"
+                    
+                    d = json.dumps({
+                        "contents": [{"parts": [{"text": prompt_with_aliases}]}],
+                        "systemInstruction": {"parts": [{"text": IDENTITY_PROMPT}]}
+                    }).encode()
+                    
+                    req = urllib.request.Request(
+                        url, 
+                        data=d, 
+                        headers={"Content-Type": "application/json"}, 
+                        method='POST'
+                    )
+                    
+                    with urllib.request.urlopen(req, timeout=20) as r:
+                        j = json.loads(r.read().decode())
+                        result_text = j.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+                        if result_text and result_text.strip():
                             cls.count += 1
-                            cleaned = cls._clean(result)
+                            cleaned = cls._clean(result_text)
+                            print(f"✅ Gemini: modello {model} risposto con successo")
                             return cleaned
-            except Exception as e:
-                print(f"⚠️ Errore Gemini: {e}")
-                pass
+                            
+                except urllib.error.HTTPError as e:
+                    if e.code == 404:
+                        print(f"⚠️ Gemini: modello {model} non trovato (404)")
+                    elif e.code == 429:
+                        print(f"⚠️ Gemini: modello {model} rate limit (429), provo prossimo...")
+                    elif e.code == 400:
+                        print(f"⚠️ Gemini: modello {model} richiesta errata (400)")
+                        try:
+                            error_body = e.read().decode('utf-8')
+                            print(f"   📄 Errore: {error_body[:200]}")
+                        except:
+                            pass
+                    else:
+                        print(f"⚠️ Gemini: modello {model} errore {e.code}")
+                    time.sleep(0.5)
+                except Exception as e:
+                    print(f"⚠️ Gemini: modello {model} errore: {e}")
+                    time.sleep(0.3)
         
         if OPENROUTER_API_KEY:
             try:
-                d = json.dumps({"model":"openrouter/free","messages":[{"role":"user","content":prompt_with_aliases}],"max_tokens":max_tok,"temperature":0.7}).encode()
-                req = urllib.request.Request("https://openrouter.ai/api/v1/chat/completions", data=d,
-                    headers={"Authorization":f"Bearer {OPENROUTER_API_KEY}","Content-Type":"application/json"}, method='POST')
-                with urllib.request.urlopen(req, timeout=20) as r:
-                    j = json.loads(r.read().decode())
-                    if "choices" in j:
-                        cls.count += 1
-                        cleaned = cls._clean(j["choices"][0]["message"]["content"])
-                        return cleaned
+                openrouter_models = [
+                    "openrouter/free",
+                    "google/gemini-2.5-flash-1.5b",
+                    "mistralai/mistral-7b-instruct"
+                ]
+                
+                for model in openrouter_models:
+                    try:
+                        d = json.dumps({
+                            "model": model,
+                            "messages": [{"role": "user", "content": prompt_with_aliases}],
+                            "max_tokens": max_tok,
+                            "temperature": 0.7
+                        }).encode()
+                        
+                        req = urllib.request.Request(
+                            "https://openrouter.ai/api/v1/chat/completions",
+                            data=d,
+                            headers={
+                                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                                "Content-Type": "application/json"
+                            },
+                            method='POST'
+                        )
+                        
+                        with urllib.request.urlopen(req, timeout=25) as r:
+                            j = json.loads(r.read().decode())
+                            
+                            if j and "choices" in j and len(j["choices"]) > 0:
+                                choice = j["choices"][0]
+                                if "message" in choice and "content" in choice["message"]:
+                                    content = choice["message"]["content"]
+                                    if content and content.strip():
+                                        cls.count += 1
+                                        cleaned = cls._clean(content)
+                                        print(f"✅ OpenRouter: modello {model} risposto con successo")
+                                        return cleaned
+                                        
+                    except urllib.error.HTTPError as e:
+                        print(f"⚠️ OpenRouter: modello {model} errore {e.code}")
+                        if e.code == 429:
+                            time.sleep(1)
+                    except Exception as e:
+                        print(f"⚠️ OpenRouter: modello {model} errore: {e}")
+                        
             except Exception as e:
                 print(f"⚠️ Errore OpenRouter: {e}")
-                pass
         
         return None
     
     @classmethod
     def _clean(cls, text):
-        """Pulisce la risposta e restituisce i nomi reali"""
+        if not text:
+            return ""
+            
         text = text.strip()
         
-        # Rimuove righe di metadati
         text = re.sub(r'(?i)^User Safety:\s*\w+\s*\n?', '', text)
         text = re.sub(r'(?i)^Safety:\s*\w+\s*\n?', '', text)
         text = re.sub(r'(?i)^(okay|let me|dunque|allora|vediamo|analizzo|devo|i need|first|penso|credo|echo).*?[:\.]\s*', '', text)
         
-        # Rimuove righe indesiderate
         lines = []
         for l in text.split('\n'):
             if not re.match(r'(?i)^(okay|let me|dunque|quindi|devo|i need|the user|first|user safety|safety)', l.strip()):
                 lines.append(l)
         text = '\n'.join(lines).strip() if lines else text
         
-        # Restituisci i nomi reali
         text = AliasResolver.restore_real_names_to_text(text)
         
         return text
 
+class WebSearch:
+    USER_AGENTS = [
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
+    ]
+    
+    @staticmethod
+    def search(query, n=4):
+        results = []
+        
+        for attempt in range(3):
+            try:
+                user_agent = random.choice(WebSearch.USER_AGENTS)
+                encoded_q = urllib.parse.quote_plus(query)
+                
+                req = urllib.request.Request(
+                    f"https://html.duckduckgo.com/html/?q={encoded_q}",
+                    headers={
+                        'User-Agent': user_agent,
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                        'Accept-Language': 'it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7',
+                        'Accept-Encoding': 'gzip, deflate, br',
+                        'DNT': '1',
+                        'Connection': 'keep-alive',
+                        'Upgrade-Insecure-Requests': '1',
+                        'Sec-Fetch-Dest': 'document',
+                        'Sec-Fetch-Mode': 'navigate',
+                        'Sec-Fetch-Site': 'none',
+                        'Sec-Fetch-User': '?1'
+                    }
+                )
+                
+                with urllib.request.urlopen(req, timeout=10) as r:
+                    html = r.read().decode('utf-8', errors='ignore')
+                    
+                    blocks = re.findall(r'<div class="result__body">.*?</div>', html, re.DOTALL)
+                    
+                    if blocks:
+                        for block in blocks[:n]:
+                            title_match = re.search(r'class="result__a"[^>]*>(.*?)</a>', block, re.DOTALL)
+                            snippet_match = re.search(r'class="result__snippet"[^>]*>(.*?)</a>', block, re.DOTALL)
+                            
+                            if title_match:
+                                title = re.sub(r'<[^>]+>', '', title_match.group(1)).strip()
+                                snippet = ""
+                                if snippet_match:
+                                    snippet = re.sub(r'<[^>]+>', '', snippet_match.group(1)).strip()
+                                
+                                url_match = re.search(r'href=["\']([^"\']+)', title_match.group(0))
+                                url = url_match.group(1) if url_match else ""
+                                
+                                if url.startswith('//'):
+                                    url = 'https:' + url
+                                elif url.startswith('/'):
+                                    url = 'https://duckduckgo.com' + url
+                                
+                                if len(snippet) > 10:
+                                    results.append({
+                                        "title": title,
+                                        "snippet": snippet[:300],
+                                        "url": url
+                                    })
+                        
+                        if results:
+                            print(f"   🌐 [Web] Trovati {len(results)} risultati per '{query[:50]}...'")
+                            return results
+                    
+                    alt_blocks = re.findall(r'<a rel="nofollow" class="result__a".*?</a>', html, re.DOTALL)
+                    if alt_blocks:
+                        for block in alt_blocks[:n]:
+                            title = re.sub(r'<[^>]+>', '', block).strip()
+                            url_match = re.search(r'href=["\']([^"\']+)', block)
+                            if url_match and title and len(title) > 5:
+                                results.append({
+                                    "title": title,
+                                    "snippet": f"Risultato trovato per: {query}",
+                                    "url": url_match.group(1)
+                                })
+                        
+                        if results:
+                            print(f"   🌐 [Web] Trovati {len(results)} risultati (alt) per '{query[:50]}...'")
+                            return results
+                            
+            except Exception as e:
+                print(f"   ⚠️ WebSearch tentativo {attempt+1} fallito: {e}")
+                if attempt < 2:
+                    time.sleep(random.uniform(1, 3))
+                continue
+        
+        print(f"   🌐 [Web] Nessun risultato per '{query[:50]}...'")
+        return results
+
+class FileLoader:
+    def __init__(self, folder_path):
+        self.folder = Path(folder_path)
+        self.files_content = {}
+        self.folder.mkdir(parents=True, exist_ok=True)
+        for fp in self.folder.glob("*.txt"):
+            try:
+                with open(fp, 'r', encoding='utf-8') as f:
+                    self.files_content[fp.name] = f.read()
+            except:
+                pass
+    
+    def get_all_content(self):
+        return "\n".join(self.files_content.values())
+
+class KnowledgeBase:
+    STOPWORDS = {
+        "quante", "volte", "sono", "le", "ha", "il", "di", "a", "da", "in", "per", "con", "su", 
+        "del", "della", "dei", "degli", "delle", "al", "alla", "ai", "agli", "alle", "dal", "dalla", 
+        "dai", "dagli", "dalle", "nel", "nella", "nei", "negli", "nelle", "sul", "sulla", "sui", 
+        "sugli", "sulle", "e", "ed", "o", "ma", "se", "perché", "chi", "cosa", "come", "dove", 
+        "quando", "questo", "questa", "questi", "queste", "quello", "quella", "quelli", "quelle", 
+        "si", "no", "non", "ci", "vi", "ti", "mi", "lo", "la", "gli", "li", "un", "uno", "una", "un'"
+    }
+
+    def __init__(self, data_folder):
+        self.data_folder = Path(data_folder)
+        self.files_content = {}
+        self.chunks = []
+        self.idf = {}
+        self.load_all_files()
+        self.index_chunks()
+    
+    def load_all_files(self):
+        for fp in self.data_folder.glob("*.txt"):
+            try:
+                with open(fp, 'r', encoding='utf-8') as f:
+                    self.files_content[fp.name] = f.read()
+                    print(f"📚 Caricato: {fp.name} ({len(self.files_content[fp.name])} caratteri)")
+            except Exception as e:
+                print(f"⚠️ Errore caricando {fp.name}: {e}")
+                
+    @staticmethod
+    def stem_word(word):
+        word = word.lower().strip()
+        word = re.sub(r'[^\w]', '', word)
+        if len(word) <= 2:
+            return word
+        
+        suffixes = (
+            'izzazione', 'izzazioni', 'izzazione',
+            'eranno', 'eremmo', 'ereste', 'eresti', 'eranno',
+            'assero', 'essero', 'issero', 'avamo', 'avate',
+            'arono', 'erono', 'irono', 'andoci', 'endoci',
+            'andone', 'endone', 'atemi', 'atela', 'atelo',
+            'ateci', 'atevi', 'ateli', 'atele', 'atene',
+            'abile', 'ibili', 'mente', 'zione', 'zioni',
+            'atore', 'atori', 'atrice', 'atrici',
+            'issimo', 'issima', 'issimi', 'issime',
+            'arono', 'erono', 'irono', 'avamo', 'avate', 'avano',
+            'eremo', 'erete', 'iremo', 'irete',
+            'ando', 'endo', 'ante', 'ente', 'anti', 'enti',
+            'ammo', 'ando', 'asse', 'assi', 'este', 'esti', 'iamo', 'iate',
+            'ato', 'ata', 'ati', 'ate', 'uto', 'uta', 'uti', 'ute',
+            'ito', 'ita', 'iti', 'ite', 'ico', 'ica', 'ici', 'ice',
+            'ina', 'ini', 'ine', 'ino', 'ica', 'ice', 'ici', 'ico', 'iche',
+            'oso', 'osa', 'osi', 'ose', 'ore', 'ori',
+            'ere', 'are', 'ire', 'ense', 'ensi',
+            'ava', 'avi', 'avo', 'eva', 'evi', 'evo', 'iva', 'ivi', 'ivo',
+            'erò', 'erà', 'irò', 'irò',
+            'o', 'a', 'i', 'e'
+        )
+        for suffix in suffixes:
+            if word.endswith(suffix):
+                if len(word) - len(suffix) >= 3:
+                    return word[:-len(suffix)]
+        return word
+
+    def clean_query(self, query):
+        cleaned = re.sub(r'[^\w\s]', ' ', query.lower())
+        words = [w for w in cleaned.split() if w not in self.STOPWORDS and len(w) > 2]
+        return words if words else cleaned.split()
+
+    def index_chunks(self):
+        self.chunks = []
+        doc_counts = defaultdict(int)
+        
+        for filename, content in self.files_content.items():
+            content_resolved = AliasResolver.resolve_all_names(content)
+            paragraphs = re.split(r'\n\s*\n', content_resolved)
+            current_chunk = []
+            
+            for p in paragraphs:
+                p_strip = p.strip()
+                if not p_strip:
+                    continue
+                if len(p_strip) < 150 and current_chunk:
+                    current_chunk.append(p_strip)
+                else:
+                    if current_chunk:
+                        text = "\n\n".join(current_chunk)
+                        self._add_chunk(filename, text, doc_counts)
+                    current_chunk = [p_strip]
+                    
+            if current_chunk:
+                text = "\n\n".join(current_chunk)
+                self._add_chunk(filename, text, doc_counts)
+                
+        total_chunks = len(self.chunks)
+        for term, count in doc_counts.items():
+            self.idf[term] = math.log((total_chunks + 1) / (count + 0.5)) + 1.0
+
+    def _add_chunk(self, filename, text, doc_counts):
+        words = re.findall(r'\w+', text.lower())
+        stems = []
+        term_freqs = defaultdict(int)
+        
+        for w in words:
+            if w not in self.STOPWORDS and len(w) > 2:
+                term_freqs[w] += 1
+                stems.append(w)
+                
+                stem = self.stem_word(w)
+                if stem != w:
+                    term_freqs[stem] += 1
+                    stems.append(stem)
+                
+        unique_stems = set(stems)
+        for stem in unique_stems:
+            doc_counts[stem] += 1
+            
+        self.chunks.append({
+            'file': filename,
+            'text': text,
+            'stems': unique_stems,
+            'term_freqs': term_freqs,
+            'word_count': len(words)
+        })
+
+    def search(self, query, max_results=5):
+        query_words = re.findall(r'\w+', query.lower())
+        query_stems = []
+        for w in query_words:
+            if w not in self.STOPWORDS and len(w) > 2:
+                query_stems.append(w)
+                stem = self.stem_word(w)
+                if stem != w:
+                    query_stems.append(stem)
+        
+        if not query_stems:
+            query_stems = [query.lower().strip()]
+            
+        results = []
+        for chunk in self.chunks:
+            score = 0.0
+            matched_stems = set()
+            
+            for q_stem in query_stems:
+                if q_stem in chunk['stems']:
+                    tf = chunk['term_freqs'][q_stem]
+                    idf_val = self.idf.get(q_stem, 1.0)
+                    tf_score = (tf * 2.2) / (tf + 1.2)
+                    score += tf_score * idf_val
+                    matched_stems.add(q_stem)
+            
+            if len(matched_stems) > 1:
+                ratio = len(matched_stems) / len(query_stems)
+                score *= (1.5 + ratio * 2.0)
+            
+            if chunk['word_count'] > 0:
+                score /= (0.8 + 0.2 * (chunk['word_count'] / 200.0))
+                
+            if score > 0.0:
+                results.append({
+                    'file': chunk['file'],
+                    'score': score,
+                    'context': chunk['text'],
+                    'line': chunk['text'].split('\n')[0]
+                })
+                
+        results.sort(key=lambda x: x['score'], reverse=True)
+        return results[:max_results]
+    
+    def find_exact_answer(self, query, entity_name):
+        results = self.search(query, max_results=10)
+        entity_lower = entity_name.lower()
+        for r in results:
+            if entity_lower in r['context'].lower():
+                return r['context']
+        
+        query_words = self.clean_query(query)
+        for r in results:
+            if any(word in r['context'].lower() for word in query_words):
+                return r['context']
+        
+        return None
+
+# ==================== DEEP RESEARCH ENGINE ====================
+DEEP_RESEARCH_CONFIG = {
+    "max_sources_free": 8,
+    "max_sources_plus": 25,
+    "max_sources_pro": 80,
+    "max_words_free": 2500,
+    "max_words_plus": 6000,
+    "max_words_pro": 20000,
+    "cache_ttl_hours": 72,
+    "max_jobs_per_user": 5,
+    "default_timeout_seconds": 180,
+    "progress_update_interval": 5,
+}
+
+@dataclass
+class DeepJob:
+    job_id: str
+    user_id: int
+    chat_id: int
+    prompt: str
+    plan: str
+    status: str = "queued"
+    progress: int = 0
+    created_at: float = field(default_factory=time.time)
+    started_at: Optional[float] = None
+    finished_at: Optional[float] = None
+    report: Optional[str] = None
+    pdf_path: Optional[str] = None
+    sources_count: int = 0
+    error: Optional[str] = None
+    message_id: Optional[int] = None
+
+class DeepResearchDB:
+    def __init__(self, db_path):
+        self.db_path = db_path
+        self._init_db()
+
+    def _init_db(self):
+        conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS deep_jobs (
+                job_id TEXT PRIMARY KEY,
+                user_id INTEGER,
+                chat_id INTEGER,
+                prompt TEXT,
+                plan TEXT,
+                status TEXT,
+                progress INTEGER DEFAULT 0,
+                created_at REAL,
+                started_at REAL,
+                finished_at REAL,
+                report TEXT,
+                pdf_path TEXT,
+                sources_count INTEGER DEFAULT 0,
+                error TEXT,
+                message_id INTEGER DEFAULT 0
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS deep_cache (
+                query_hash TEXT PRIMARY KEY,
+                query TEXT,
+                results TEXT,
+                created_at REAL,
+                expires_at REAL
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS deep_stats (
+                user_id INTEGER PRIMARY KEY,
+                total_jobs INTEGER DEFAULT 0,
+                total_sources INTEGER DEFAULT 0,
+                last_job_at REAL
+            )
+        """)
+
+        conn.commit()
+        conn.close()
+
+    def save_job(self, job: DeepJob):
+        conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            INSERT OR REPLACE INTO deep_jobs (
+                job_id, user_id, chat_id, prompt, plan, status, progress,
+                created_at, started_at, finished_at, report, pdf_path,
+                sources_count, error, message_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            job.job_id, job.user_id, job.chat_id, job.prompt, job.plan,
+            job.status, job.progress, job.created_at, job.started_at,
+            job.finished_at, job.report, job.pdf_path,
+            job.sources_count, job.error, job.message_id
+        ))
+
+        conn.commit()
+        conn.close()
+
+    def get_job(self, job_id: str) -> Optional[DeepJob]:
+        conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT * FROM deep_jobs WHERE job_id = ?", (job_id,))
+        row = cursor.fetchone()
+        conn.close()
+
+        if not row:
+            return None
+
+        return DeepJob(
+            job_id=row[0],
+            user_id=row[1],
+            chat_id=row[2],
+            prompt=row[3],
+            plan=row[4],
+            status=row[5],
+            progress=row[6],
+            created_at=row[7],
+            started_at=row[8],
+            finished_at=row[9],
+            report=row[10],
+            pdf_path=row[11],
+            sources_count=row[12] or 0,
+            error=row[13],
+            message_id=row[14] or 0,
+        )
+
+    def get_user_jobs(self, user_id: int, limit: int = 20) -> List[DeepJob]:
+        conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT * FROM deep_jobs
+            WHERE user_id = ?
+            ORDER BY created_at DESC
+            LIMIT ?
+        """, (user_id, limit))
+
+        rows = cursor.fetchall()
+        conn.close()
+
+        jobs = []
+        for row in rows:
+            jobs.append(DeepJob(
+                job_id=row[0],
+                user_id=row[1],
+                chat_id=row[2],
+                prompt=row[3],
+                plan=row[4],
+                status=row[5],
+                progress=row[6],
+                created_at=row[7],
+                started_at=row[8],
+                finished_at=row[9],
+                report=row[10],
+                pdf_path=row[11],
+                sources_count=row[12] or 0,
+                error=row[13],
+                message_id=row[14] or 0,
+            ))
+
+        return jobs
+
+    def get_active_jobs(self) -> List[DeepJob]:
+        conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT * FROM deep_jobs
+            WHERE status IN ('queued', 'planning', 'searching', 'synthesizing', 'factchecking')
+            ORDER BY created_at ASC
+        """)
+
+        rows = cursor.fetchall()
+        conn.close()
+
+        jobs = []
+        for row in rows:
+            jobs.append(DeepJob(
+                job_id=row[0],
+                user_id=row[1],
+                chat_id=row[2],
+                prompt=row[3],
+                plan=row[4],
+                status=row[5],
+                progress=row[6],
+                created_at=row[7],
+                started_at=row[8],
+                finished_at=row[9],
+                report=row[10],
+                pdf_path=row[11],
+                sources_count=row[12] or 0,
+                error=row[13],
+                message_id=row[14] or 0,
+            ))
+
+        return jobs
+
+    def update_progress(self, job_id: str, progress: int, status: str = None):
+        conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        cursor = conn.cursor()
+
+        if status:
+            cursor.execute("""
+                UPDATE deep_jobs
+                SET progress = ?, status = ?
+                WHERE job_id = ?
+            """, (progress, status, job_id))
+        else:
+            cursor.execute("""
+                UPDATE deep_jobs
+                SET progress = ?
+                WHERE job_id = ?
+            """, (progress, job_id))
+
+        conn.commit()
+        conn.close()
+
+    def mark_done(self, job_id: str, report: str, pdf_path: str = None, sources_count: int = 0):
+        conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            UPDATE deep_jobs
+            SET status = 'done', finished_at = ?, report = ?, pdf_path = ?,
+                sources_count = ?, progress = 100
+            WHERE job_id = ?
+        """, (time.time(), report, pdf_path, sources_count, job_id))
+
+        conn.commit()
+        conn.close()
+
+    def mark_failed(self, job_id: str, error: str):
+        conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            UPDATE deep_jobs
+            SET status = 'failed', error = ?, finished_at = ?
+            WHERE job_id = ?
+        """, (error, time.time(), job_id))
+
+        conn.commit()
+        conn.close()
+
+    def get_cached_search(self, query: str) -> Optional[List[Dict]]:
+        query_hash = hashlib.md5(query.lower().encode()).hexdigest()
+
+        conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT results FROM deep_cache
+            WHERE query_hash = ? AND expires_at > ?
+        """, (query_hash, time.time()))
+
+        row = cursor.fetchone()
+        conn.close()
+
+        if row:
+            return json.loads(row[0])
+        return None
+
+    def cache_search(self, query: str, results: List[Dict]):
+        query_hash = hashlib.md5(query.lower().encode()).hexdigest()
+        expires_at = time.time() + (DEEP_RESEARCH_CONFIG["cache_ttl_hours"] * 3600)
+
+        conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            INSERT OR REPLACE INTO deep_cache (query_hash, query, results, created_at, expires_at)
+            VALUES (?, ?, ?, ?, ?)
+        """, (query_hash, query, json.dumps(results), time.time(), expires_at))
+
+        conn.commit()
+        conn.close()
+
+    def update_stats(self, user_id: int, sources_count: int):
+        conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            INSERT INTO deep_stats (user_id, total_jobs, total_sources, last_job_at)
+            VALUES (?, 1, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                total_jobs = total_jobs + 1,
+                total_sources = total_sources + ?,
+                last_job_at = ?
+        """, (user_id, sources_count, time.time(), sources_count, time.time()))
+
+        conn.commit()
+        conn.close()
+
+    def cleanup_old_jobs(self, days: int = 30):
+        cutoff = time.time() - (days * 86400)
+
+        conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            DELETE FROM deep_jobs
+            WHERE status IN ('done', 'failed', 'cancelled') AND finished_at < ?
+        """, (cutoff,))
+
+        cursor.execute("""
+            DELETE FROM deep_cache
+            WHERE expires_at < ?
+        """, (time.time(),))
+
+        conn.commit()
+        conn.close()
+
+class DeepPlanner:
+    @staticmethod
+    def create_plan(prompt: str, plan_level: str = "free") -> Dict:
+        max_queries = 6 if plan_level == "free" else 12 if plan_level == "plus" else 25
+
+        system = f"""Sei un ricercatore esperto. Devi creare un piano di ricerca dettagliato per rispondere alla domanda dell'utente.
+
+REGOLE:
+- Rispondi SOLO in JSON, nient'altro
+- Crea un piano con: titolo, sezioni, query di ricerca, focus
+- Genera ESATTAMENTE {max_queries} query di ricerca in italiano
+- Le query devono essere specifiche e mirate
+
+FORMATO JSON OBBLIGATORIO:
+{{
+    "title": "Titolo della ricerca",
+    "sections": [
+        {{"name": "Nome sezione", "description": "Breve descrizione"}}
+    ],
+    "queries": [
+        "query 1",
+        "query 2"
+    ],
+    "focus": ["parola1", "parola2"]
+}}"""
+
+        try:
+            response = AIClient.generate(
+                f"{system}\n\nDOMANDA: {prompt}",
+                max_tok=600 if plan_level == "pro" else 400
+            )
+
+            if response:
+                json_match = re.search(r'\{[\s\S]*\}', response)
+                if json_match:
+                    return json.loads(json_match.group())
+        except Exception as e:
+            print(f"⚠️ Errore nel planner: {e}")
+
+        return {
+            "title": f"Analisi approfondita: {prompt[:50]}",
+            "sections": [{"name": "Panoramica", "description": "Analisi generale"}],
+            "queries": [prompt],
+            "focus": ["analisi", "approfondimento"]
+        }
+
+class DeepSearchEngine:
+    @staticmethod
+    def search(query: str, limit: int = 5, use_cache: bool = True) -> List[Dict]:
+        if use_cache:
+            cached = DEEP_DB.get_cached_search(query)
+            if cached:
+                print(f"   ✅ [Cache] Query '{query[:50]}...' trovata in cache")
+                return cached[:limit]
+
+        results = []
+
+        try:
+            web_results = WebSearch.search(query, n=limit)
+            for r in web_results:
+                results.append({
+                    "title": r.get("title", "Senza titolo"),
+                    "url": r.get("url", ""),
+                    "snippet": r.get("snippet", ""),
+                    "source": "web",
+                    "relevance": 0.8
+                })
+            if web_results:
+                print(f"   🌐 [Web] Trovati {len(web_results)} risultati per '{query[:50]}...'")
+        except Exception as e:
+            print(f"   ⚠️ Errore WebSearch per '{query[:50]}...': {e}")
+
+        try:
+            wiki_results = DeepSearchEngine._search_wikipedia(query, limit=limit // 2 + 1)
+            for r in wiki_results:
+                results.append({
+                    "title": r.get("title", "Senza titolo"),
+                    "url": r.get("url", f"https://it.wikipedia.org/wiki/{r.get('title', '')}"),
+                    "snippet": r.get("snippet", ""),
+                    "source": "wikipedia",
+                    "relevance": 0.9
+                })
+            if wiki_results:
+                print(f"   📚 [Wikipedia] Trovati {len(wiki_results)} risultati per '{query[:50]}...'")
+        except Exception as e:
+            print(f"   ⚠️ Errore Wikipedia per '{query[:50]}...': {e}")
+
+        try:
+            kb_results = DeepSearchEngine._search_knowledge_base(query, limit=limit // 2 + 1)
+            for r in kb_results:
+                results.append({
+                    "title": r.get("file", "Knowledge Base"),
+                    "url": "",
+                    "snippet": r.get("context", "")[:500],
+                    "source": "knowledge_base",
+                    "relevance": 0.85
+                })
+            if kb_results:
+                print(f"   📖 [KB] Trovati {len(kb_results)} risultati per '{query[:50]}...'")
+        except Exception as e:
+            print(f"   ⚠️ Errore KB per '{query[:50]}...': {e}")
+
+        seen = set()
+        unique_results = []
+        for r in results:
+            key = r.get("title", "") + r.get("snippet", "")[:100]
+            if key not in seen:
+                seen.add(key)
+                unique_results.append(r)
+
+        if use_cache and unique_results:
+            DEEP_DB.cache_search(query, unique_results)
+
+        return unique_results[:limit]
+
+    @staticmethod
+    def _search_wikipedia(query: str, limit: int = 3) -> List[Dict]:
+        results = []
+        try:
+            import urllib.request
+            import urllib.parse
+
+            encoded = urllib.parse.quote_plus(query)
+            url = f"https://it.wikipedia.org/w/api.php?action=query&list=search&srsearch={encoded}&format=json&utf8=1&srlimit={limit}"
+
+            req = urllib.request.Request(
+                url, 
+                headers={
+                    'User-Agent': 'ArcadiaAI/1.0 (https://github.com/Mirko-linux/ArcadiaAI-new)'
+                }
+            )
+            with urllib.request.urlopen(req, timeout=6) as r:
+                data = json.loads(r.read().decode())
+
+                if "query" in data and "search" in data["query"]:
+                    for item in data["query"]["search"]:
+                        snippet = re.sub(r'<[^>]+>', '', item.get("snippet", ""))
+                        if len(snippet) > 10:
+                            results.append({
+                                "title": item.get("title", ""),
+                                "snippet": snippet,
+                                "url": f"https://it.wikipedia.org/wiki/{urllib.parse.quote_plus(item.get('title', ''))}"
+                            })
+
+        except Exception as e:
+            print(f"   ⚠️ Errore Wikipedia: {e}")
+
+        return results
+
+    @staticmethod
+    def _search_knowledge_base(query: str, limit: int = 3) -> List[Dict]:
+        try:
+            kb = KnowledgeBase(DATA_FOLDER)
+            return kb.search(query, max_results=limit)
+        except Exception as e:
+            print(f"   ⚠️ Errore KB: {e}")
+        return []
+
+class DeepFactChecker:
+    @staticmethod
+    def verify(sources: List[Dict], draft: str) -> Dict:
+        if len(sources) < 2:
+            return {
+                "status": "partial",
+                "message": "Poche fonti per una verifica completa",
+                "score": 60
+            }
+
+        system = """Sei un fact-checker specializzato. Devi verificare l'accuratezza di un rapporto di ricerca.
+
+VERIFICA:
+1. Coerenza tra fonti
+2. Presenza di contraddizioni
+3. Affidabilità delle fonti
+
+Rispondi in JSON:
+{
+    "status": "ok" | "partial" | "warning" | "error",
+    "message": "Spiegazione breve",
+    "score": 0-100,
+    "issues": ["problema 1", "problema 2"],
+    "suggestions": ["suggerimento 1"]
+}"""
+
+        sources_summary = "\n".join([
+            f"- {s.get('title', 'Senza titolo')} ({s.get('source', 'sconosciuta')}): {s.get('snippet', '')[:200]}"
+            for s in sources[:10]
+        ])
+
+        text = f"""FONTI:
+{sources_summary}
+
+BOZZA:
+{draft[:2000]}"""
+
+        try:
+            response = AIClient.generate(
+                f"{system}\n\n{text}",
+                max_tok=400
+            )
+
+            if response:
+                json_match = re.search(r'\{[\s\S]*\}', response)
+                if json_match:
+                    return json.loads(json_match.group())
+        except Exception as e:
+            print(f"⚠️ Errore fact-check: {e}")
+
+        return {
+            "status": "partial",
+            "message": "Verifica automatica non completa",
+            "score": 70,
+            "issues": [],
+            "suggestions": ["Verifica manualmente le fonti più importanti"]
+        }
+
+class DeepSynthesizer:
+    @staticmethod
+    def build_report(prompt: str, plan: Dict, sources: List[Dict], plan_level: str) -> str:
+        max_words = DEEP_RESEARCH_CONFIG["max_words_free"]
+        if plan_level == "plus":
+            max_words = DEEP_RESEARCH_CONFIG["max_words_plus"]
+        elif plan_level == "pro":
+            max_words = DEEP_RESEARCH_CONFIG["max_words_pro"]
+
+        system = f"""Sei un analista senior e scrittore professionista. Devi scrivere un rapporto di ricerca completo e di alta qualità.
+
+REGOLE FONDAMENTALI:
+- Scrivi SOLO in italiano
+- Usa un tono professionale e autorevole
+- Struttura il rapporto con titolo, sommario, introduzione, capitoli, analisi, conclusioni, bibliografia
+- Usa markdown per la formattazione
+- Cita le fonti nel testo con [1], [2], ecc.
+- Lunghezza massima: {max_words} parole
+- NON includere il ragionamento, solo il report finale
+
+FORMATO RACCOMANDATO:
+# Titolo del Report
+
+## Sommario
+Breve riassunto...
+
+## Introduzione
+Contesto...
+
+## Capitolo 1: ...
+Contenuto...
+
+## Conclusioni
+Sintesi...
+
+## Bibliografia
+- [1] Titolo, Fonte, URL
+"""
+
+        sections_text = "\n".join([
+            f"- {s.get('name', 'Sezione')}: {s.get('description', '')}"
+            for s in plan.get("sections", [])
+        ])
+
+        sources_text = "\n".join([
+            f"[{i+1}] {s.get('title', 'Senza titolo')} - {s.get('source', 'sconosciuta')}\n    URL: {s.get('url', 'N/A')}\n    {s.get('snippet', '')[:300]}..."
+            for i, s in enumerate(sources[:20])
+        ])
+
+        user_prompt = f"""DOMANDA DELL'UTENTE: {prompt}
+
+PIANO DI RICERCA:
+{sections_text}
+
+FONTI DISPONIBILI ({len(sources)} fonti):
+{sources_text}
+
+Scrivi il report completo basandoti su queste fonti. Mantieni uno stile professionale e strutturato."""
+
+        try:
+            report = AIClient.generate(
+                f"{system}\n\n{user_prompt}",
+                max_tok=min(max_words * 2, 4000)
+            )
+
+            if report and len(report) > 100:
+                return report
+        except Exception as e:
+            print(f"⚠️ Errore sintesi: {e}")
+
+        return f"""# Rapporto di Ricerca: {prompt}
+
+## Introduzione
+Questa è un'analisi approfondita basata su {len(sources)} fonti disponibili.
+
+## Analisi
+{chr(10).join([f"- {s.get('title', 'Fonte')}: {s.get('snippet', '')[:200]}..." for s in sources[:5]])}
+
+## Conclusioni
+Le informazioni raccolte forniscono una visione complessiva dell'argomento.
+
+## Bibliografia
+{chr(10).join([f"- {s.get('title', 'Fonte')}: {s.get('url', 'N/A')}" for s in sources[:5]])}
+"""
+
+class DeepResearchEngine:
+    def __init__(self):
+        self.running = False
+        self.queue = queue.Queue()
+        self.worker_thread = None
+
+    def start(self):
+        if self.running:
+            return
+        self.running = True
+        self.worker_thread = threading.Thread(target=self._worker_loop, daemon=True)
+        self.worker_thread.start()
+        print("🧠 Motore Deep Research avviato!")
+
+    def stop(self):
+        self.running = False
+        if self.worker_thread:
+            self.worker_thread.join(timeout=5)
+
+    def submit_job(self, job: DeepJob) -> str:
+        user_jobs = DEEP_DB.get_user_jobs(job.user_id, limit=100)
+        active_jobs = [j for j in user_jobs if j.status in ['queued', 'planning', 'searching', 'synthesizing', 'factchecking']]
+
+        if len(active_jobs) >= DEEP_RESEARCH_CONFIG["max_jobs_per_user"]:
+            job.status = "failed"
+            job.error = f"Troppi job attivi ({len(active_jobs)}/{DEEP_RESEARCH_CONFIG['max_jobs_per_user']})"
+            DEEP_DB.save_job(job)
+            return job.job_id
+
+        DEEP_DB.save_job(job)
+        self.queue.put(job)
+        return job.job_id
+
+    def _worker_loop(self):
+        while self.running:
+            try:
+                job = self.queue.get(timeout=1)
+                self._process_job(job)
+            except queue.Empty:
+                continue
+            except Exception as e:
+                print(f"❌ Errore worker Deep Research: {e}")
+                time.sleep(1)
+
+    def _process_job(self, job: DeepJob):
+        try:
+            print(f"🧠 [Deep Research] Avvio job {job.job_id} per user {job.user_id}")
+
+            job.status = "planning"
+            job.progress = 5
+            job.started_at = time.time()
+            DEEP_DB.save_job(job)
+
+            plan = DeepPlanner.create_plan(job.prompt, job.plan)
+            job.progress = 15
+            DEEP_DB.update_progress(job.job_id, 15)
+
+            job.status = "searching"
+            job.progress = 20
+            DEEP_DB.update_progress(job.job_id, 20, "searching")
+
+            max_sources = DEEP_RESEARCH_CONFIG["max_sources_free"]
+            if job.plan == "plus":
+                max_sources = DEEP_RESEARCH_CONFIG["max_sources_plus"]
+            elif job.plan == "pro":
+                max_sources = DEEP_RESEARCH_CONFIG["max_sources_pro"]
+
+            all_sources = []
+            queries = plan.get("queries", [job.prompt])
+
+            total_queries = len(queries)
+            for i, query in enumerate(queries):
+                if len(all_sources) >= max_sources:
+                    break
+
+                limit_per_query = min(3, max_sources - len(all_sources) + 2)
+                sources = DeepSearchEngine.search(query, limit=limit_per_query)
+
+                for s in sources:
+                    if not any(existing.get("url") == s.get("url") for existing in all_sources):
+                        all_sources.append(s)
+
+                progress = 20 + int((i + 1) / total_queries * 35)
+                DEEP_DB.update_progress(job.job_id, min(progress, 55))
+                time.sleep(0.3)
+
+            job.sources_count = len(all_sources)
+
+            job.status = "synthesizing"
+            job.progress = 60
+            DEEP_DB.update_progress(job.job_id, 60, "synthesizing")
+
+            draft = DeepSynthesizer.build_report(
+                job.prompt,
+                plan,
+                all_sources,
+                job.plan
+            )
+
+            job.progress = 80
+            DEEP_DB.update_progress(job.job_id, 80)
+
+            job.status = "factchecking"
+            job.progress = 85
+            DEEP_DB.update_progress(job.job_id, 85, "factchecking")
+
+            fact_check = DeepFactChecker.verify(all_sources[:15], draft)
+
+            report = DeepResearchEngine._finalize_report(draft, fact_check, all_sources, plan)
+
+            job.report = report
+            job.status = "done"
+            job.finished_at = time.time()
+            job.progress = 100
+            DEEP_DB.mark_done(job.job_id, report, sources_count=len(all_sources))
+            DEEP_DB.update_stats(job.user_id, len(all_sources))
+
+            print(f"✅ [Deep Research] Job {job.job_id} completato con {len(all_sources)} fonti")
+
+        except Exception as e:
+            error_msg = str(e)
+            print(f"❌ [Deep Research] Job {job.job_id} fallito: {error_msg}")
+            DEEP_DB.mark_failed(job.job_id, error_msg)
+
+    @staticmethod
+    def _finalize_report(draft: str, fact_check: Dict, sources: List[Dict], plan: Dict) -> str:
+        reliability = "ALTO"
+        if fact_check.get("score", 70) < 60:
+            reliability = "MEDIO-BASSO"
+        elif fact_check.get("score", 70) < 80:
+            reliability = "MEDIO"
+
+        bibliography = []
+        for i, s in enumerate(sources[:30]):
+            source_type = s.get("source", "web")
+            label = {"web": "🌐", "wikipedia": "📚", "knowledge_base": "📖"}.get(source_type, "🔗")
+            bibliography.append(
+                f"{label} **[{i+1}]** {s.get('title', 'Senza titolo')}\n"
+                f"   Fonte: {source_type}\n"
+                f"   URL: {s.get('url', 'N/A')}"
+            )
+
+        return f"""# 📊 DEEP RESEARCH REPORT
+
+## 📋 Riepilogo
+- **Richiesta:** {plan.get('title', 'Analisi approfondita')}
+- **Fonti analizzate:** {len(sources)}
+- **Livello di affidabilità:** {reliability}
+- **Verifica automatica:** {fact_check.get('status', 'parziale')}
+
+---
+
+## 🔍 VERIFICA FATTI
+**Stato:** {fact_check.get('status', 'N/A')}
+**Punteggio:** {fact_check.get('score', 0)}/100
+
+{fact_check.get('message', 'Verifica completata')}
+
+{chr(10).join(['⚠️ ' + i for i in fact_check.get('issues', [])]) if fact_check.get('issues') else ''}
+
+---
+
+## 📝 RAPPORTO COMPLETO
+
+{draft}
+
+---
+
+## 📚 BIBLIOGRAFIA
+
+{chr(10).join(bibliography)}
+
+---
+
+## ⚖️ Note Metodologiche
+- Questo report è stato generato automaticamente da ArcadiaAI Deep Research
+- Le informazioni sono state raccolte da fonti multiple e verificate incrociatamente
+- Per approfondimenti, consultare le fonti originali elencate in bibliografia
+- Data generazione: {datetime.now().strftime('%d/%m/%Y %H:%M')}
+
+---
+*ArcadiaAI Deep Research Engine v1.0 - Licenza MPL 2.0*
+"""
+
+DEEP_DB = DeepResearchDB(SCRIPT_DIR / "deep_research.db")
+deep_engine = DeepResearchEngine()
+
+# ==================== DEEP RESEARCH COMMANDS ====================
+class DeepResearchCommands:
+    @staticmethod
+    def handle_deep_command(bot, chat_id, user_id, args):
+        if not args:
+            bot.send(chat_id, "🧠 **Deep Research ArcadiaAI Pro**\n\n"
+                "Crea report di ricerca approfonditi con fonti verificate.\n\n"
+                "**Piani disponibili:**\n"
+                "• `/deep free [domanda]` - 8 fonti, fino a 2500 parole\n"
+                "• `/deep plus [domanda]` - 25 fonti, fino a 6000 parole (25 ARC)\n"
+                "• `/deep pro [domanda]` - 80 fonti, fino a 20000 parole (50 ARC)\n\n"
+                "**Esempio:** `/deep pro La storia della Repubblica di Lumenaria`\n\n"
+                "**Altri comandi:**\n"
+                "/deep_status [id] - Stato di un job\n"
+                "/deep_history - Storico dei tuoi job\n"
+                "/deep_cancel [id] - Cancella un job")
+            return
+
+        parts = args.split(maxsplit=1)
+        if len(parts) < 2:
+            bot.send(chat_id, "⚠️ Usa: `/deep [piano] [domanda]`\nEsempio: `/deep pro Storia di Arcadia`")
+            return
+
+        plan = parts[0].lower()
+        prompt = parts[1].strip()
+
+        if plan not in ["free", "plus", "pro"]:
+            bot.send(chat_id, "⚠️ Piano non valido! Usa: free, plus o pro")
+            return
+
+        if user_id != DEVELOPER_USER_ID:
+            bypass = bot.db.has_active_bypass(user_id)
+            if not bypass:
+                active = [j for j in DEEP_DB.get_user_jobs(user_id) if j.status in ['queued', 'planning', 'searching', 'synthesizing', 'factchecking']]
+                if len(active) >= 2:
+                    bot.send(chat_id, f"⏳ Hai già {len(active)} job in corso. Attendi o usa `/deep_cancel`.")
+                    return
+
+        job_id = f"deep_{user_id}_{int(time.time())}_{hashlib.md5(prompt.encode()).hexdigest()[:6]}"
+        job = DeepJob(
+            job_id=job_id,
+            user_id=user_id,
+            chat_id=chat_id,
+            prompt=prompt,
+            plan=plan,
+            status="queued",
+            progress=0
+        )
+
+        deep_engine.submit_job(job)
+
+        bot.send(chat_id, f"🧠 **Deep Research avviato!**\n\n"
+            f"📋 **Piano:** {plan.upper()}\n"
+            f"📝 **Domanda:** {prompt[:100]}{'...' if len(prompt) > 100 else ''}\n"
+            f"🆔 **ID Job:** `{job_id}`\n\n"
+            f"⏳ Tempo stimato: { '2-4 minuti' if plan == 'free' else '4-8 minuti' if plan == 'plus' else '8-15 minuti' }\n\n"
+            f"Usa `/deep_status {job_id}` per controllare il progresso.")
+
+        return job_id
+
+    @staticmethod
+    def handle_deep_status(bot, chat_id, user_id, args):
+        job_id = args.strip() if args else None
+
+        if not job_id:
+            jobs = DEEP_DB.get_user_jobs(user_id, limit=5)
+            if not jobs:
+                bot.send(chat_id, "📭 Non hai ancora eseguito nessuna ricerca Deep Research.")
+                return
+
+            response = "📊 **I tuoi ultimi job:**\n\n"
+            for j in jobs[:5]:
+                status_emoji = {
+                    "queued": "⏳", "planning": "🧠", "searching": "🔍",
+                    "synthesizing": "✍️", "factchecking": "✅",
+                    "done": "✅", "failed": "❌", "cancelled": "🚫"
+                }.get(j.status, "❓")
+
+                response += f"{status_emoji} `{j.job_id}`\n"
+                response += f"   📝 {j.prompt[:60]}{'...' if len(j.prompt) > 60 else ''}\n"
+                response += f"   📊 Progresso: {j.progress}%\n"
+                response += f"   📋 Piano: {j.plan.upper()}\n"
+                response += f"   🕐 {datetime.fromtimestamp(j.created_at).strftime('%d/%m %H:%M')}\n\n"
+
+            bot.send(chat_id, response)
+            return
+
+        job = DEEP_DB.get_job(job_id)
+
+        if not job:
+            bot.send(chat_id, f"❌ Job `{job_id}` non trovato.")
+            return
+
+        if job.user_id != user_id and user_id != DEVELOPER_USER_ID:
+            bot.send(chat_id, "❌ Non hai accesso a questo job.")
+            return
+
+        if job.status == "done":
+            if job.report and len(job.report) > 4000:
+                parts = [job.report[i:i+4000] for i in range(0, len(job.report), 4000)]
+                bot.send(chat_id, f"📊 **Report Deep Research completato!**\n\n🆔 `{job.job_id}`\n📝 {job.prompt}\n📚 Fonti: {job.sources_count}\n\n")
+                for part in parts:
+                    bot.send(chat_id, part)
+                bot.send(chat_id, f"\n📎 Report generato il {datetime.fromtimestamp(job.finished_at).strftime('%d/%m/%Y %H:%M')}")
+            else:
+                bot.send(chat_id, f"📊 **Report Deep Research:**\n\n{job.report}\n\n📚 Fonti: {job.sources_count}")
+            return
+
+        if job.status == "failed":
+            bot.send(chat_id, f"❌ **Job fallito:**\n🆔 `{job.job_id}`\nErrore: {job.error}")
+            return
+
+        status_messages = {
+            "queued": "⏳ In coda...",
+            "planning": "🧠 Creazione piano di ricerca...",
+            "searching": "🔍 Ricerca fonti...",
+            "synthesizing": "✍️ Sintesi del report...",
+            "factchecking": "✅ Verifica dei fatti..."
+        }
+
+        progress_bar = "█" * (job.progress // 5) + "░" * (20 - job.progress // 5)
+
+        bot.send(chat_id, f"📊 **Stato Deep Research**\n\n"
+            f"🆔 `{job.job_id}`\n"
+            f"📝 {job.prompt[:100]}{'...' if len(job.prompt) > 100 else ''}\n"
+            f"📋 Piano: {job.plan.upper()}\n"
+            f"📊 Progresso: {job.progress}%\n"
+            f"`[{progress_bar}]`\n"
+            f"🔄 {status_messages.get(job.status, 'Elaborazione...')}\n"
+            f"📚 Fonti trovate: {job.sources_count}")
+
+    @staticmethod
+    def handle_deep_history(bot, chat_id, user_id, args):
+        jobs = DEEP_DB.get_user_jobs(user_id, limit=20)
+
+        if not jobs:
+            bot.send(chat_id, "📭 Non hai ancora eseguito nessuna ricerca Deep Research.")
+            return
+
+        completed = len([j for j in jobs if j.status == "done"])
+        total_sources = sum(j.sources_count for j in jobs if j.status == "done")
+
+        response = f"📊 **Storico Deep Research**\n\n"
+        response += f"📋 Totale ricerche: {len(jobs)}\n"
+        response += f"✅ Completate: {completed}\n"
+        response += f"📚 Fonti totali: {total_sources}\n\n"
+        response += "---\n\n"
+
+        for j in jobs[:10]:
+            status_emoji = "✅" if j.status == "done" else "⏳" if j.status in ['queued', 'planning', 'searching', 'synthesizing', 'factchecking'] else "❌"
+            response += f"{status_emoji} `{j.job_id[:12]}...` - {j.prompt[:50]}{'...' if len(j.prompt) > 50 else ''}\n"
+            response += f"   📋 {j.plan.upper()} | {j.sources_count} fonti | {datetime.fromtimestamp(j.created_at).strftime('%d/%m %H:%M')}\n\n"
+
+        bot.send(chat_id, response)
+
+    @staticmethod
+    def handle_deep_cancel(bot, chat_id, user_id, args):
+        job_id = args.strip() if args else None
+
+        if not job_id:
+            active = [j for j in DEEP_DB.get_user_jobs(user_id) if j.status in ['queued', 'planning', 'searching', 'synthesizing', 'factchecking']]
+            if not active:
+                bot.send(chat_id, "✅ Non hai job in corso.")
+                return
+
+            response = "📋 **Job in corso:**\n\n"
+            for j in active:
+                response += f"• `{j.job_id}` - {j.prompt[:40]}... ({j.progress}%)\n"
+            response += "\nUsa `/deep_cancel [id]` per cancellarne uno."
+
+            bot.send(chat_id, response)
+            return
+
+        job = DEEP_DB.get_job(job_id)
+
+        if not job:
+            bot.send(chat_id, f"❌ Job `{job_id}` non trovato.")
+            return
+
+        if job.user_id != user_id and user_id != DEVELOPER_USER_ID:
+            bot.send(chat_id, "❌ Non hai accesso a questo job.")
+            return
+
+        if job.status in ["done", "failed", "cancelled"]:
+            bot.send(chat_id, f"⚠️ Il job `{job_id}` è già stato completato o cancellato.")
+            return
+
+        job.status = "cancelled"
+        job.error = "Cancellato dall'utente"
+        DEEP_DB.save_job(job)
+
+        bot.send(chat_id, f"🚫 Job `{job_id}` cancellato con successo.")
+
+# ==================== ARCADIA BOT ====================
 class ArcadiaBot:
     def __init__(self):
         self.token = TELEGRAM_BOT_TOKEN
@@ -824,10 +2511,14 @@ class ArcadiaBot:
         self.db = MessageDB(SCRIPT_DIR / "processed.db")
         self.loader = FileLoader(DATA_FOLDER)
         self.knowledge = KnowledgeBase(DATA_FOLDER)
+        self.deep_db = DeepResearchDB(SCRIPT_DIR / "deep_research.db")
         self.msgs = 0
         self.dups = 0
         self.username = ""
         self.id = 0
+        self.short_term_memory = {}
+        self.MAX_SHORT_TERM = 10
+        
         self.fetch_bot_info()
         gc.collect()
 
@@ -882,6 +2573,21 @@ class ArcadiaBot:
         time.sleep(1.2)
         
         return self.api("sendPhoto", p)
+        
+    def send_photo_file(self, chat_id, photo_path, caption=None):
+        url = f"{self.base_url}/sendPhoto"
+        self.api("sendChatAction", {"chat_id": chat_id, "action": "upload_photo"})
+        try:
+            with open(photo_path, 'rb') as f:
+                files = {'photo': f}
+                data = {'chat_id': chat_id}
+                if caption:
+                    data['caption'] = caption[:1024]
+                r = REQUESTS_SESSION.post(url, data=data, files=files, timeout=40)
+                return r.json()
+        except Exception as e:
+            print(f"⚠️ Errore upload foto locale: {e}")
+            return {"ok": False}
     
     def send_video_file(self, chat_id, video_path, caption=None):
         with open(video_path, 'rb') as f:
@@ -983,6 +2689,134 @@ class ArcadiaBot:
             import traceback
             traceback.print_exc()
 
+    def add_to_short_term_memory(self, user_id, role, content):
+        if user_id not in self.short_term_memory:
+            self.short_term_memory[user_id] = []
+        
+        self.short_term_memory[user_id].append({
+            "role": role,
+            "content": content,
+            "timestamp": time.time()
+        })
+        
+        if len(self.short_term_memory[user_id]) > self.MAX_SHORT_TERM:
+            self.short_term_memory[user_id] = self.short_term_memory[user_id][-self.MAX_SHORT_TERM:]
+    
+    def get_short_term_context(self, user_id, limit=5):
+        if user_id not in self.short_term_memory:
+            return ""
+        
+        messages = self.short_term_memory[user_id][-limit:]
+        context = []
+        for msg in messages:
+            if msg["role"] == "user":
+                context.append(f"Utente: {msg['content']}")
+            else:
+                context.append(f"ArcadiaAI: {msg['content']}")
+        
+        return "\n".join(context)
+    
+    def get_full_context(self, user_id, chat_id, short_limit=5, long_limit=8):
+        short_context = self.get_short_term_context(user_id, short_limit)
+        long_context = self.db.get_conversation_context(user_id, chat_id, long_limit)
+        
+        if short_context and long_context:
+            return f"{long_context}\n\n{short_context}"
+        elif short_context:
+            return short_context
+        elif long_context:
+            return long_context
+        else:
+            return ""
+    
+    def clear_memory(self, user_id, chat_id):
+        if user_id in self.short_term_memory:
+            self.short_term_memory[user_id] = []
+        self.db.clear_memory(user_id, chat_id)
+        return True
+
+    def handle_ces360(self, chat_id, prompt):
+        if not HF_TOKEN:
+            self.send(chat_id, "❌ **Token Hugging Face non configurato!**\n\n"
+                "Per utilizzare /ces-360 devi configurare il token nel file `.env`:\n"
+                "`HUGGINGFACE_TOKEN=tuo_token_qui`\n\n"
+                "Puoi ottenere un token gratuito su https://huggingface.co/settings/tokens")
+            return
+        
+        if not prompt:
+            self.send(chat_id, "⚠️ **Scrivi una domanda dopo il comando!**\n\n"
+                "Esempio: `/ces-360 Spiegami cos'è Lumenaria`")
+            return
+        
+        self.api("sendChatAction", {"chat_id": chat_id, "action": "typing"})
+        
+        payload = {
+            "inputs": f"User: {prompt}\nAssistant:",
+            "parameters": {
+                "max_new_tokens": 512,
+                "temperature": 0.7,
+                "do_sample": True,
+                "top_p": 0.95
+            }
+        }
+        
+        try:
+            print(f"🤖 [CES-360] Richiesta API per: {prompt[:80]}...")
+            
+            response = REQUESTS_SESSION.post(
+                HF_API_URL,
+                headers=HF_HEADERS,
+                json=payload,
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                
+                if isinstance(data, list) and len(data) > 0:
+                    text_resp = data[0].get("generated_text", "")
+                elif isinstance(data, dict):
+                    text_resp = data.get("generated_text", "")
+                else:
+                    text_resp = str(data)
+                
+                if text_resp.startswith(payload["inputs"]):
+                    text_resp = text_resp[len(payload["inputs"]):].strip()
+                elif text_resp.startswith(prompt):
+                    text_resp = text_resp[len(prompt):].strip()
+                    
+                if not text_resp:
+                    text_resp = "⚠️ Il modello ha generato una risposta vuota. Riprova riformulando la domanda."
+                
+                self.send(chat_id, f"🧠 **CES-360:**\n\n{text_resp}")
+                print(f"   ✅ Risposta inviata con successo.")
+                
+            elif response.status_code == 503:
+                self.send(chat_id, "⏳ **Il modello si sta svegliando sui server di Hugging Face...**\n\n"
+                    "Dato che la risorsa gratuita è in modalità di risparmio energetico, "
+                    "potrebbe volerci da **1 a 3 minuti** per caricarlo in memoria.\n\n"
+                    "🔄 *Riprova tra circa un minuto!*")
+                print(f"   ⏳ Server in standby (503).")
+                
+            elif response.status_code in [401, 403]:
+                self.send(chat_id, "🔑 **Errore di autenticazione con Hugging Face**\n\n"
+                    "Il tuo token HUGGINGFACE_TOKEN nel file `.env` non è corretto o non ha i permessi di lettura per questo modello.")
+                print(f"   ❌ Token non valido (Stato: {response.status_code}).")
+                
+            else:
+                self.send(chat_id, f"❌ Errore durante la risposta dall'API (Codice: {response.status_code})")
+                print(f"   ❌ Errore API: {response.text}")
+                
+        except requests.exceptions.ConnectionError as conn_err:
+            self.send(chat_id, "🌐 **Errore di connessione di rete**\n\n"
+                "Impossibile raggiungere i server di Hugging Face. "
+                "Questo può accadere se il computer non è connesso a internet o se le API sono temporaneamente offline. Riprova più tardi!")
+            print(f"   ❌ Errore di rete: {conn_err}")
+            
+        except Exception as e:
+            self.send(chat_id, f"❌ Errore imprevisto durante l'elaborazione del comando: {e}")
+            print(f"   ❌ Errore generale: {e}")
+
     def process_update(self, update):
         update_id = update.get("update_id", 0)
         if self.db.is_processed(update_id):
@@ -1003,6 +2837,59 @@ class ArcadiaBot:
         
         text = msg.get("text", "").strip()
         
+        # ============================================================
+        # 🧠 DEEP RESEARCH COMMANDS - CON LOGGING ESPLICITO
+        # ============================================================
+        if text:
+            # /deep [piano] [domanda]
+            if text.startswith("/deep "):
+                args = text[5:].strip()
+                print(f"🧠 [DEEP] ✅ Comando /deep riconosciuto! Args: '{args}'")
+                
+                if not args:
+                    DeepResearchCommands.handle_deep_command(self, chat_id, user_id, "")
+                    return
+                
+                first_arg = args.split()[0].lower() if args.split() else ""
+                if first_arg in ["free", "plus", "pro"]:
+                    print(f"🧠 [DEEP] 📋 Piano: {first_arg.upper()}")
+                    DeepResearchCommands.handle_deep_command(self, chat_id, user_id, args)
+                else:
+                    print(f"🧠 [DEEP] 📋 Piano: FREE (default)")
+                    DeepResearchCommands.handle_deep_command(self, chat_id, user_id, f"free {args}")
+                return
+            
+            # /deep_status [id]
+            elif text.startswith("/deep_status"):
+                args = text[12:].strip()
+                print(f"🧠 [DEEP] ✅ Comando /deep_status riconosciuto! Args: '{args}'")
+                DeepResearchCommands.handle_deep_status(self, chat_id, user_id, args)
+                return
+            
+            # /deep_history
+            elif text.startswith("/deep_history"):
+                args = text[13:].strip()
+                print(f"🧠 [DEEP] ✅ Comando /deep_history riconosciuto!")
+                DeepResearchCommands.handle_deep_history(self, chat_id, user_id, args)
+                return
+            
+            # /deep_cancel [id]
+            elif text.startswith("/deep_cancel"):
+                args = text[13:].strip()
+                print(f"🧠 [DEEP] ✅ Comando /deep_cancel riconosciuto! Args: '{args}'")
+                DeepResearchCommands.handle_deep_cancel(self, chat_id, user_id, args)
+                return
+            
+            # /deep (senza argomenti - help)
+            elif text.strip() == "/deep":
+                print(f"🧠 [DEEP] ✅ Comando /deep help riconosciuto!")
+                DeepResearchCommands.handle_deep_command(self, chat_id, user_id, "")
+                return
+        
+        # ============================================================
+        # FINE DEEP RESEARCH - SE ARRIVI QUI, IL COMANDO NON È /deep
+        # ============================================================
+        
         if "photo" in msg:
             photo = msg["photo"][-1]
             file_id = photo["file_id"]
@@ -1014,6 +2901,9 @@ class ArcadiaBot:
         
         if not text:
             return
+        
+        self.add_to_short_term_memory(user_id, "user", text)
+        self.db.save_conversation(user_id, chat_id, "user", text)
         
         is_group = chat_type in ["group", "supergroup"]
         bot_username = self.username.lower() if self.username else ""
@@ -1031,8 +2921,10 @@ class ArcadiaBot:
         registered_commands = [
             "/start", "/aiuto", "/help", "/videohelp", "/video",
             "/codice_sorgente", "/buy_bypass", "/create_vip",
-            "/redeem", "/img", "/stats", "/cerca",
-            "/vip_status", "/my_vip_codes", "/ai", "/alias_test"
+            "/redeem", "/img", "/img_plus", "/imgplus", "/stats", "/cerca",
+            "/vip_status", "/my_vip_codes", "/ai", "/alias_test",
+            "/clear_memory", "/cancella_memoria", "/reset_memory", "/memoria",
+            "/ces-360"
         ]
         
         proc_text = text
@@ -1047,6 +2939,7 @@ class ArcadiaBot:
         
         print(f"📥 [{chat_type.upper()}] Messaggio da {user_name} (ID: {user_id}): '{text}'")
         print(f"   ↳ Processato: '{proc_text}' | first_word: '{first_word}'")
+        
         if is_reply_to_bot:
             print("   ↳ 💬 Risposta (reply) diretta al bot.")
         if is_command:
@@ -1056,7 +2949,7 @@ class ArcadiaBot:
             
         if is_group:
             if not (is_command or is_mentioned or is_reply_to_bot):
-                print("   🚫 Ignorato (Nessun comando, tag o reply esplicita).")
+                print("   ↳ 🚫 Ignorato (Nessun comando, tag o reply esplicita).")
                 return
 
         ai_query = proc_text
@@ -1067,20 +2960,60 @@ class ArcadiaBot:
                 self.send(chat_id, "💬 Cosa vuoi chiedermi? Usa `/ai <domanda>`")
                 return
         
+        if first_word == "/ces-360":
+            prompt = proc_text[8:].strip()
+            self.handle_ces360(chat_id, prompt)
+            return
+        
         if bot_username:
             ai_query = re.sub(r'(?i)@' + re.escape(bot_username), '', ai_query).strip()
         
         ai_query = re.sub(r'\s+', ' ', ai_query).strip()
         
-        if first_word == "/start":
-            dev = "🔓 Dev" if user_id == DEVELOPER_USER_ID else ""
-            self.send(chat_id, f"👋 Ciao {user_name}! ArcadiaAI.\n\n🎬 /video [desc] - Video AI diretto\n🎨 /img [desc] - Immagine\n🎫 /vip [codice] - Riscatta codice VIP\n🖼️ Invia una foto con 'analizza' per descriverla\n💬 Fammi una domanda!\n📋 /aiuto{(' ' + dev) if dev else ''}")
+        if first_word in ["/memoria", "/memory"]:
+            status = self.db.get_memory_status(user_id, chat_id)
+            short_count = len(self.short_term_memory.get(user_id, []))
+            self.send(chat_id, f"🧠 **Stato Memoria ArcadiaAI**\n\n"
+                f"**💾 Memoria a breve termine (RAM):**\n"
+                f"   • Messaggi: {short_count}/{self.MAX_SHORT_TERM}\n\n"
+                f"**💿 Memoria a lungo termine (Database):**\n"
+                f"   • Messaggi: {status['count']}\n"
+                f"   • Ultimo messaggio: {status['last_message']}\n\n"
+                f"📌 Usa `/clear_memory` per cancellare tutta la memoria.")
             return
         
-        elif first_word in ["/aiuto", "/help"]:
+        if first_word in ["/clear_memory", "/cancella_memoria", "/reset_memory"]:
+            self.clear_memory(user_id, chat_id)
+            self.send(chat_id, "🧹 **Memoria cancellata!**\n\n"
+                "Ho cancellato tutte le mie memorie su di te.\n"
+                "Non ricorderò più le conversazioni precedenti.")
+            return
+        
+        if first_word == "/start":
+            dev = "🔓 Dev" if user_id == DEVELOPER_USER_ID else ""
+            self.send(chat_id, f"👋 Ciao {user_name}! Sono ArcadiaAI.\n\n"
+                "🧠 **Ho una memoria potenziata!**\n"
+                "Ricordo le conversazioni sia a breve che a lungo termine.\n\n"
+                "🎬 /video [desc] - Video AI diretto\n"
+                "🎨 /img [desc] - Immagine standard\n"
+                "🎨 /img_plus [desc] - Immagine HD (FLUX)\n"
+                "🧠 /ces-360 [domanda] - Modello CES-360 su Hugging Face\n"
+                "🧠 /deep [piano] [domanda] - Deep Research avanzato\n"
+                "🎫 /vip [codice] - Riscatta codice VIP\n"
+                "🖼️ Invia una foto con 'analizza' per descriverla\n"
+                "💬 Fammi una domanda!\n"
+                "🧠 /memoria - Stato memoria\n"
+                "🧹 /clear_memory - Cancella memoria\n"
+                f"📋 /aiuto{(' ' + dev) if dev else ''}")
+            return
+        
+        if first_word in ["/aiuto", "/help"]:
             self.send(chat_id, "🎬 **Comandi ArcadiaAI**\n\n"
                 "🎬 /video [stile] [descrizione] - Video AI\n"
-                "🎨 /img [desc] - Immagine\n"
+                "🎨 /img [desc] - Immagine standard\n"
+                "🎨 /img_plus [desc] - Immagine ad alta definizione (FLUX)\n"
+                "🧠 /ces-360 [domanda] - Modello CES-360 su Hugging Face\n"
+                "🧠 /deep [piano] [domanda] - Deep Research avanzato\n"
                 "🖼️ Invia una foto con 'analizza' per descriverla\n"
                 "🎫 /vip [codice] - Riscatta codice VIP\n"
                 "👨‍💻 /codice_sorgente - Link alla repository\n"
@@ -1088,16 +3021,25 @@ class ArcadiaBot:
                 "🔍 /cerca [q] - Web\n"
                 "🏦 /buy_bypass - Bypass limiti\n"
                 "📊 /stats - Statistiche\n\n"
+                "**🧠 Memoria:**\n"
+                "/memoria - Stato memoria\n"
+                "/clear_memory - Cancella memoria\n\n"
+                "**Deep Research:**\n"
+                "/deep free [domanda] - Ricerca base (gratis)\n"
+                "/deep plus [domanda] - Ricerca avanzata (25 ARC)\n"
+                "/deep pro [domanda] - Ricerca professionale (50 ARC)\n"
+                "/deep_status [id] - Stato job\n"
+                "/deep_history - Storico\n\n"
                 "**VIP:**\n"
                 "/vip_status - Stato VIP\n"
                 "/my_vip_codes - I tuoi codici (Dev)\n\n"
                 "💬 Fammi una domanda su micronazioni, Leonia, Arcadia, Lumenaria!\n\n"
                 "📌 **Per farmi una domanda in un gruppo:**\n"
                 "• Usa `/ai <domanda>`\n"
-                "• Oppure taggami con `@{self.username} <domanda>`")
+                f"• Oppure taggami scrivendo `@{self.username} <domanda>`")
             return
         
-        elif first_word == "/videohelp":
+        if first_word == "/videohelp":
             self.send(chat_id, "🎬 **CES Video** - Text-to-Video Diretto\n\n"
                 "/video [stile] [descrizione]\n"
                 "Stili: cinematic, anime, realistic, artistic\n\n"
@@ -1106,23 +3048,15 @@ class ArcadiaBot:
                 "🏦 /buy_bypass per illimitati")
             return
         
-        elif first_word == "/alias_test":
+        if first_word == "/alias_test":
             if not WIKIALIAS:
                 self.send(chat_id, "⚠️ **Nessun alias caricato!**\n\n"
-                    "Verifica che il file `wikialias.json` esista nella stessa cartella di ESEMPIO.py\n\n"
-                    "Il file deve essere in formato JSON valido, ad esempio:\n"
-                    "```json\n"
-                    "{\n"
-                    '  "Mirko Orsato": "Mirko Yuri Donato",\n'
-                    '  "Salvatore Shelby": "Salvatore Giordano"\n'
-                    "}\n"
-                    "```")
+                    "Verifica che il file `wikialias.json` esista nella stessa cartella di ESEMPIO.py")
                 return
             
             test_text = "Salvatore Giordano ha fondato Lumenaria? No, è stato Filippo Zanetti! E Mirko Yuri Donato ha scritto La Storia di Lumenaria."
             aliased = AliasResolver.apply_aliases_to_text(test_text)
             restored = AliasResolver.restore_real_names_to_text(aliased)
-            
             mapping = "\n".join([f"  🔒 {alias} -> {real_name}" for alias, real_name in WIKIALIAS.items() if alias != real_name])
             
             self.send(chat_id, f"🔀 **Test Sistema Alias (Privacy-First)**\n\n"
@@ -1132,57 +3066,51 @@ class ArcadiaBot:
                 f"**📋 Mappatura Alias attuale ({len(WIKIALIAS)} alias):**\n{mapping}")
             return
         
-        elif first_word == "/ai":
+        if first_word == "/ai":
             if not ai_query:
                 return
             
             print(f"   🤖 Query AI: '{ai_query}'")
             self.send(chat_id, "🔍 Cerco nelle mie conoscenze...")
-            
+            context = self.get_full_context(user_id, chat_id, short_limit=5, long_limit=8)
             search_results = self.knowledge.search(ai_query, max_results=10)
             
             if search_results:
                 context_parts = []
                 for r in search_results[:5]:
                     context_parts.append(f"📖 Da {r['file']}:\n{r['context']}")
-                context = "\n\n".join(context_parts)
-                print(f"✅ Trovati {len(search_results)} risultati rilevanti per: {ai_query}")
+                knowledge_context = "\n\n".join(context_parts)
+                print(f"✅ Trovati {len(search_results)} risultati rilevanti.")
             else:
-                context = "Nessun risultato trovato nei file di conoscenza."
-                print(f"⚠️ Nessun risultato utile per: {ai_query}")
+                knowledge_context = "Nessun risultato trovato nei file di conoscenza."
+                print(f"⚠️ Nessun risultato utile.")
             
             system = f"""{IDENTITY_PROMPT}
 
-**CONOSCENZA DAI FILE LOCALI (USA QUESTE INFORMAZIONI CON MASSIMA PRIORITÀ):**
-{context}
+**CONTESTO DELLA CONVERSAZIONE (messaggi precedenti):**
+{context if context else "Nessuna conversazione precedente."}
+
+**CONOSCENZA DAI FILE LOCALI:**
+{knowledge_context}
 
 **REGOLA FONDAMENTALE DI RISPOSTA:**
 - Se l'informazione è presente nel testo qui sopra, usala obbligatoriamente per rispondere in modo preciso e dettagliato.
-- Se l'informazione non è presente nel testo, usa la tua conoscenza predefinita se ritieni sia affidabile, altrimenti dillo chiaramente.
+- Se l'informazione non è presente, usa la tua conoscenza predefinita o cerca nel web.
 - CITA LA FONTE (il nome del file .txt) esclusivamente una sola volta in fondo alla risposta, formattata come `[Fonte: nome_file.txt]`.
 
 **DOMANDA DELL'UTENTE:**
 {ai_query}
 
-**RISPOSTA (SOLO IN ITALIANO, DIRETTA, SENZA RAGIONAMENTO):**"""
+**RISPOSTA (SOLO IN ITALIANO, DIRETTA):**"""
             
             answer = AIClient.generate(system, max_tok=1200)
-            
             if answer:
+                self.add_to_short_term_memory(user_id, "assistant", answer)
+                self.db.save_conversation(user_id, chat_id, "assistant", answer)
                 self.send(chat_id, answer.strip())
-            else:
-                self.send(chat_id, "🌐 Cerco su internet...")
-                raw_results = WebSearch.search(ai_query, n=4)
-                if raw_results:
-                    msg = f"🔍 Risultati per '{ai_query}':\n\n"
-                    for r in raw_results:
-                        msg += f"• {r['title']}\n  {r['snippet'][:150]}...\n  🔗 {r['url']}\n\n"
-                    self.send(chat_id, msg[:4000])
-                else:
-                    self.send(chat_id, "❌ Non ho trovato informazioni su questo argomento.")
             return
         
-        elif first_word == "/video":
+        if first_word == "/video":
             args = proc_text[6:].strip()
             if not args:
                 self.send(chat_id, "🎬 /video [stile] [descrizione]\nStili: cinematic, anime, realistic, artistic")
@@ -1208,7 +3136,6 @@ class ArcadiaBot:
                     return
                 
                 self.send(chat_id, f"🎥 Genero video {style}...\n⏳ 30-60 secondi...")
-                
                 result = CESVideo.generate_video(prompt=prompt, style=style)
                 
                 if result["success"]:
@@ -1221,8 +3148,10 @@ class ArcadiaBot:
                         size_kb = result["video_path"].stat().st_size / 1024
                         self.send(chat_id, f"⚠️ Video troppo grande ({size_kb:.0f}KB). Riprova.")
                     
-                    try: shutil.rmtree(result["video_path"].parent)
-                    except: pass
+                    try:
+                        shutil.rmtree(result["video_path"].parent)
+                    except:
+                        pass
                     gc.collect()
                 else:
                     self.send(chat_id, f"⚠️ {result['error']}")
@@ -1232,43 +3161,36 @@ class ArcadiaBot:
                 video_limiter.finish(user_id)
             return
         
-        elif first_word == "/codice_sorgente":
+        if first_word == "/codice_sorgente":
             self.send(chat_id, "📂 Codice sorgente: https://github.com/Mirko-linux/ArcadiaAI-new")
             return
         
-        elif first_word == "/buy_bypass":
+        if first_word == "/buy_bypass":
             prices = "\n".join([f"• {i['name']}: {i['arc']} ARC" for i in BYPASS_PRICES.values()])
             self.send(chat_id, f"👋 Scegli come supportarci:\n\n{prices}\n\nUsa /buy_bypass [nome] per procedere!")
             return
         
-        elif first_word == "/create_vip":
+        if first_word == "/create_vip":
             if user_id != DEVELOPER_USER_ID:
                 self.send(chat_id, "❌ Solo lo sviluppatore può creare codici VIP.")
                 return
             
             parts = proc_text[11:].strip().split()
-            
             if len(parts) < 2:
-                self.send(chat_id,
-                    "🎫 **Crea Codice VIP**\n\n"
-                    "/create_vip [ore] [codice] [max_usi]\n\n"
-                    "Esempi:\n"
-                    "/create_vip 720 ARCADIA-GRAZIE-AMICO 1\n"
-                    "/create_vip 24 PROVA 5")
+                self.send(chat_id, "🎫 **Crea Codice VIP**\n\n/create_vip [ore] [codice] [max_usi]")
                 return
             
             try:
                 hours = int(parts[0])
                 code = parts[1].upper()
                 max_uses = int(parts[2]) if len(parts) > 2 else 1
-                
                 self.db.create_vip_code(code, f"PROMO_{hours}H", hours, user_id, max_uses)
                 self.send(chat_id, f"🎟️ Codice VIP Creato:\nCodice: `{code}`\nDurata: {hours} ore\nUsi Massimi: {max_uses}")
             except Exception as e:
                 self.send(chat_id, f"❌ Errore durante la creazione: {str(e)}")
             return
         
-        elif first_word == "/redeem":
+        if first_word == "/redeem":
             code = proc_text[7:].strip().upper()
             if not code:
                 self.send(chat_id, "🎟️ Specifica il codice da riscattare! Usa `/redeem CODICE`")
@@ -1281,7 +3203,28 @@ class ArcadiaBot:
                 self.send(chat_id, f"❌ {message}")
             return
         
-        elif first_word == "/img":
+        if first_word in ["/img_plus", "/imgplus"]:
+            p = proc_text[10:].strip() if first_word == "/img_plus" else proc_text[8:].strip()
+            print(f"   ↳ [ROUTING] Comando /img_plus intercettato correttamente! Prompt estratto: '{p}'")
+            if p:
+                self.send(chat_id, "🎨 Genero immagine HD con FLUX (Inference API)... ⏳")
+                r = CESImagePlus.generate(p)
+                if r["success"]:
+                    caption_label = "🎨 [FLUX HD - Emergenza Fallback]" if r.get("fallback") else "🎨 [FLUX HD]"
+                    sent = self.send_photo_file(chat_id, str(r["image_path"]), f"{caption_label} {r['prompt'][:200]}")
+                    if not sent.get("ok"):
+                        self.send(chat_id, "❌ Impossibile inviare l'immagine generata.")
+                    try:
+                        Path(r["image_path"]).unlink(missing_ok=True)
+                    except Exception as e:
+                        print(f"⚠️ Impossibile rimuovere il file temporaneo: {e}")
+                else:
+                    self.send(chat_id, f"⚠️ {r['error']}")
+            else:
+                self.send(chat_id, "⚠️ **Scrivi una descrizione dopo il comando!**\n\nEsempio: `/img_plus a futuristic city with neon lights`")
+            return
+
+        if first_word == "/img":
             p = proc_text[4:].strip()
             if p:
                 r = CESImage.generate(p)
@@ -1290,13 +3233,13 @@ class ArcadiaBot:
                 else:
                     self.send(chat_id, f"⚠️ {r['error']}")
             return
-        
-        elif first_word == "/stats":
+            
+        if first_word == "/stats":
             mem = self._mem()
             self.send(chat_id, f"💬 {self.msgs} | 🤖 {AIClient.count} | 🎨 {CESImage.count} | {CESVideo.count} | 🧠 {mem:.1f}MB")
             return
         
-        elif first_word == "/cerca":
+        if first_word == "/cerca":
             query = proc_text[7:].strip()
             if not query:
                 self.send(chat_id, "🔍 /cerca [argomento] - Cosa vuoi cercare?")
@@ -1304,30 +3247,24 @@ class ArcadiaBot:
                 
             self.send(chat_id, f"🔍 Cerco '{query}'...")
             raw_results = WebSearch.search(query, n=4)
-            
             if not raw_results:
                 self.send(chat_id, "❌ Nessun risultato trovato sul web.")
                 return
                 
             context_parts = []
             urls = []
-            
             for i, r in enumerate(raw_results, 1):
                 context_parts.append(f"Fonte {i}: {r['title']} - {r['snippet']}")
                 urls.append(f"- {r['url']}")
                 
             search_context = "\n".join(context_parts)
-            
             synthesis_prompt = (
-                f"Sei un assistente di ricerca. Basandoti ESCLUSIVAMENTE sui seguenti risultati web, "
-                f"fornisci una risposta sintetica e diretta alla domanda dell'utente: '{query}'. "
-                f"Non inventare informazioni. Cita le fonti usando [1], [2], ecc.\n\n"
-                f"RISULTATI WEB:\n{search_context}\n\n"
-                f"RISPOSTA SINTETICA (SOLO IN ITALIANO):"
+                f"Sei un assistente di ricerca. Basandoti sui risultati web, fornisci una risposta "
+                f"sintetica alla domanda: '{query}'. Cita le fonti usando [1], [2].\n\n"
+                f"RISULTATI WEB:\n{search_context}\n\nRISPOSTA SINTETICA:"
             )
             
             answer = AIClient.generate(synthesis_prompt, max_tok=400)
-            
             if answer:
                 final_msg = f"🔍 **Risultati per '{query}':**\n\n{answer.strip()}\n\n📎 Fonti:\n" + "\n".join(urls[:3])
                 self.send(chat_id, final_msg)
@@ -1349,23 +3286,26 @@ class ArcadiaBot:
             return
         
         self.send(chat_id, "🔍 Cerco nelle mie conoscenze...")
-        
+        context = self.get_full_context(user_id, chat_id, short_limit=5, long_limit=8)
         search_results = self.knowledge.search(ai_query, max_results=10)
         
         if search_results:
             context_parts = []
             for r in search_results[:5]:
                 context_parts.append(f"📖 Da {r['file']}:\n{r['context']}")
-            context = "\n\n".join(context_parts)
+            knowledge_context = "\n\n".join(context_parts)
             print(f"✅ Trovati {len(search_results)} risultati rilevanti per: {ai_query}")
         else:
-            context = "Nessun risultato trovato nei file di conoscenza."
+            knowledge_context = "Nessun risultato trovato nei file di conoscenza."
             print(f"⚠️ Nessun risultato utile per: {ai_query}")
         
         system = f"""{IDENTITY_PROMPT}
 
-**CONOSCENZA DAI FILE LOCALI (USA QUESTE INFORMAZIONI CON MASSIMA PRIORITÀ):**
-{context}
+**CONTESTO DELLA CONVERSAZIONE (messaggi precedenti):**
+{context if context else "Nessuna conversazione precedente."}
+
+**CONOSCENZA DAI FILE LOCALI:**
+{knowledge_context}
 
 **REGOLA FONDAMENTALE DI RISPOSTA:**
 - Se l'informazione è presente nel testo qui sopra, usala obbligatoriamente per rispondere in modo preciso e dettagliato.
@@ -1380,6 +3320,8 @@ class ArcadiaBot:
         answer = AIClient.generate(system, max_tok=1200)
         
         if answer:
+            self.add_to_short_term_memory(user_id, "assistant", answer)
+            self.db.save_conversation(user_id, chat_id, "assistant", answer)
             self.send(chat_id, answer.strip())
         else:
             self.send(chat_id, "🌐 Cerco su internet...")
@@ -1405,33 +3347,51 @@ class ArcadiaBot:
     
     def run_polling(self):
         print("\n" + "="*60)
-        print("🤖 ArcadiaAI - Versione con Polling Persistente")
+        print("🤖 ArcadiaAI - Versione con CES-360 su Hugging Face")
+        print("🧠 Modello CES-360: mirkodonato08/CES-360")
+        print("🧠 Deep Research Engine attivo!")
+        print("📊 Piani: free (8 fonti), plus (25 fonti), pro (80 fonti)")
+        print("🤖 Gemini multi-fallback: gemini-2.5-flash, gemini-2.5-pro, gemini-2.5-flash-lite")
+        print("🎨 Modello HD Image: FLUX.1-schnell (Inference API con fallback DoH)")
         print("💾 I messaggi NON vengono persi quando il bot è spento!")
-        print("🔒 Sistema alias attivo: i nomi reali non vengono mai inviati alle API!")
-        print("🖼️ Analisi immagini integrata!")
+        print("🔒 I nomi reali NON vengono mai inviati alle API!")
+        print("🖼️ Analisi immagini con CES Image Viewer integrata")
         print("📌 /ai funziona in gruppi e supergruppi!")
-        print("🔧 /alias_test per testare il sistema di alias")
+        print("🔧 /alias_test per testare il sistema")
+        print("🧠 /memoria per vedere lo stato della memoria")
+        print("🧹 /clear_memory per cancellare la memoria")
+        print("🧠 /ces-360 per interrogare il modello CES-360")
+        print("🎨 /img_plus per generare immagini ad alta definizione")
         print("🌐 Risponde SEMPRE in ITALIANO")
+        print("📜 Licenza: MPL 2.0")
         print("="*60 + "\n")
         
-        self.api("deleteWebhook")
+        if HF_TOKEN:
+            print(f"✅ Hugging Face configurato: {HF_MODEL}")
+            print(f"🔑 Token: {HF_TOKEN[:10]}...{HF_TOKEN[-4:]}")
+        else:
+            print(f"⚠️ Hugging Face NON configurato! /ces-360 e /img_plus non funzioneranno.")
+            print("   Aggiungi HUGGINGFACE_TOKEN=tuo_token nel file .env")
         
+        if GEMINI_API_KEY:
+            print(f"✅ Gemini API Key configurata")
+            print(f"   Modelli: {', '.join(AIClient.GEMINI_MODELS)}")
+        else:
+            print(f"⚠️ Gemini API Key non configurata! Aggiungi GEMINI_API_KEY nel file .env")
+        
+        self.api("deleteWebhook")
         last_id = self.db.get_last_update_id()
-        print(f"📌 Ultimo update_id elaborato: {last_id}")
+        print(f"📌 Ultimo update_id lavorato: {last_id}")
         
         while True:
             try:
                 updates = self.api("getUpdates", {"offset": last_id + 1, "timeout": 30})
-                
                 if updates.get("ok") and updates.get("result"):
                     for update in updates["result"]:
                         update_id = update["update_id"]
-                        
                         self.db.set_last_update_id(update_id)
                         last_id = update_id
-                        
                         self.process_update(update)
-                        
             except KeyboardInterrupt:
                 print("\n👋 Ciao!")
                 break
@@ -1439,258 +3399,33 @@ class ArcadiaBot:
                 print(f"⚠️ Errore nel polling: {e}")
                 time.sleep(2)
 
-# ==================== CLASSI SUPPORTO ====================
-class FileLoader:
-    def __init__(self, folder_path):
-        self.folder = Path(folder_path)
-        self.files_content = {}
-        self.folder.mkdir(parents=True, exist_ok=True)
-        for fp in self.folder.glob("*.txt"):
-            try:
-                with open(fp, 'r', encoding='utf-8') as f:
-                    self.files_content[fp.name] = f.read()
-            except:
-                pass
-    
-    def get_all_content(self):
-        return "\n".join(self.files_content.values())
-
-class KnowledgeBase:
-    STOPWORDS = {
-        "quante", "volte", "sono", "le", "ha", "il", "di", "a", "da", "in", "per", "con", "su", 
-        "del", "della", "dei", "degli", "delle", "al", "alla", "ai", "agli", "alle", "dal", "dalla", 
-        "dai", "dagli", "dalle", "nel", "nella", "nei", "negli", "nelle", "sul", "sulla", "sui", 
-        "sugli", "sulle", "e", "ed", "o", "ma", "se", "perché", "chi", "cosa", "come", "dove", 
-        "quando", "questo", "questa", "questi", "queste", "quello", "quella", "quelli", "quelle", 
-        "si", "no", "non", "ci", "vi", "ti", "mi", "lo", "la", "gli", "li", "un", "uno", "una", "un'"
-    }
-
-    def __init__(self, data_folder):
-        self.data_folder = Path(data_folder)
-        self.files_content = {}
-        self.chunks = []
-        self.idf = {}
-        self.load_all_files()
-        self.index_chunks()
-    
-    def load_all_files(self):
-        for fp in self.data_folder.glob("*.txt"):
-            try:
-                with open(fp, 'r', encoding='utf-8') as f:
-                    self.files_content[fp.name] = f.read()
-                    print(f"📚 Caricato: {fp.name} ({len(self.files_content[fp.name])} caratteri)")
-            except Exception as e:
-                print(f"⚠️ Errore caricando {fp.name}: {e}")
-                
-    @staticmethod
-    def stem_word(word):
-        word = word.lower().strip()
-        word = re.sub(r'[^\w]', '', word)
-        if len(word) <= 2:
-            return word
-        
-        suffixes = (
-            'izzazione', 'izzazioni', 'izzazione',
-            'eranno', 'eremmo', 'ereste', 'eresti', 'eranno',
-            'assero', 'essero', 'issero', 'avamo', 'avate',
-            'arono', 'erono', 'irono', 'andoci', 'endoci',
-            'andone', 'endone', 'atemi', 'atela', 'atelo',
-            'ateci', 'atevi', 'ateli', 'atele', 'atene',
-            'abile', 'ibili', 'mente', 'zione', 'zioni',
-            'atore', 'atori', 'atrice', 'atrici',
-            'issimo', 'issima', 'issimi', 'issime',
-            'arono', 'erono', 'irono', 'avamo', 'avate', 'avano',
-            'eremo', 'erete', 'iremo', 'irete',
-            'ando', 'endo', 'ante', 'ente', 'anti', 'enti',
-            'ammo', 'ando', 'asse', 'assi', 'este', 'esti', 'iamo', 'iate',
-            'ato', 'ata', 'ati', 'ate', 'uto', 'uta', 'uti', 'ute',
-            'ito', 'ita', 'iti', 'ite', 'ico', 'ica', 'ici', 'ice',
-            'ina', 'ini', 'ine', 'ino', 'ica', 'ice', 'ici', 'ico', 'iche',
-            'oso', 'osa', 'osi', 'ose', 'ore', 'ori',
-            'ere', 'are', 'ire', 'ense', 'ensi',
-            'ava', 'avi', 'avo', 'eva', 'evi', 'evo', 'iva', 'ivi', 'ivo',
-            'erò', 'erà', 'irò', 'irà',
-            'o', 'a', 'i', 'e'
-        )
-        for suffix in suffixes:
-            if word.endswith(suffix):
-                if len(word) - len(suffix) >= 3:
-                    return word[:-len(suffix)]
-        return word
-
-    def clean_query(self, query):
-        cleaned = re.sub(r'[^\w\s]', ' ', query.lower())
-        words = [w for w in cleaned.split() if w not in self.STOPWORDS and len(w) > 2]
-        return words if words else cleaned.split()
-
-    def index_chunks(self):
-        self.chunks = []
-        doc_counts = defaultdict(int)
-        
-        for filename, content in self.files_content.items():
-            content_resolved = AliasResolver.resolve_all_names(content)
-            paragraphs = re.split(r'\n\s*\n', content_resolved)
-            current_chunk = []
-            
-            for p in paragraphs:
-                p_strip = p.strip()
-                if not p_strip:
-                    continue
-                if len(p_strip) < 150 and current_chunk:
-                    current_chunk.append(p_strip)
-                else:
-                    if current_chunk:
-                        text = "\n\n".join(current_chunk)
-                        self._add_chunk(filename, text, doc_counts)
-                    current_chunk = [p_strip]
-                    
-            if current_chunk:
-                text = "\n\n".join(current_chunk)
-                self._add_chunk(filename, text, doc_counts)
-                
-        total_chunks = len(self.chunks)
-        for term, count in doc_counts.items():
-            self.idf[term] = math.log((total_chunks + 1) / (count + 0.5)) + 1.0
-
-    def _add_chunk(self, filename, text, doc_counts):
-        words = re.findall(r'\w+', text.lower())
-        stems = []
-        term_freqs = defaultdict(int)
-        
-        for w in words:
-            if w not in self.STOPWORDS and len(w) > 2:
-                term_freqs[w] += 1
-                stems.append(w)
-                
-                stem = self.stem_word(w)
-                if stem != w:
-                    term_freqs[stem] += 1
-                    stems.append(stem)
-                
-        unique_stems = set(stems)
-        for stem in unique_stems:
-            doc_counts[stem] += 1
-            
-        self.chunks.append({
-            'file': filename,
-            'text': text,
-            'stems': unique_stems,
-            'term_freqs': term_freqs,
-            'word_count': len(words)
-        })
-
-    def search(self, query, max_results=5):
-        query_words = re.findall(r'\w+', query.lower())
-        query_stems = []
-        for w in query_words:
-            if w not in self.STOPWORDS and len(w) > 2:
-                query_stems.append(w)
-                stem = self.stem_word(w)
-                if stem != w:
-                    query_stems.append(stem)
-        
-        if not query_stems:
-            query_stems = [query.lower().strip()]
-            
-        results = []
-        
-        for chunk in self.chunks:
-            score = 0.0
-            matched_stems = set()
-            
-            for q_stem in query_stems:
-                if q_stem in chunk['stems']:
-                    tf = chunk['term_freqs'][q_stem]
-                    idf_val = self.idf.get(q_stem, 1.0)
-                    
-                    tf_score = (tf * 2.2) / (tf + 1.2)
-                    score += tf_score * idf_val
-                    matched_stems.add(q_stem)
-            
-            if len(matched_stems) > 1:
-                ratio = len(matched_stems) / len(query_stems)
-                score *= (1.5 + ratio * 2.0)
-            
-            if chunk['word_count'] > 0:
-                score /= (0.8 + 0.2 * (chunk['word_count'] / 200.0))
-                
-            if score > 0.0:
-                results.append({
-                    'file': chunk['file'],
-                    'score': score,
-                    'context': chunk['text'],
-                    'line': chunk['text'].split('\n')[0]
-                })
-                
-        results.sort(key=lambda x: x['score'], reverse=True)
-        return results[:max_results]
-    
-    def find_exact_answer(self, query, entity_name):
-        results = self.search(query, max_results=10)
-        entity_lower = entity_name.lower()
-        for r in results:
-            if entity_lower in r['context'].lower():
-                return r['context']
-        
-        query_words = self.clean_query(query)
-        for r in results:
-            if any(word in r['context'].lower() for word in query_words):
-                return r['context']
-        
-        return None
-
-# ==================== WEB SEARCH ====================
-class WebSearch:
-    @staticmethod
-    def search(query, n=4):
-        results = []
-        try:
-            encoded_q = urllib.parse.quote_plus(query)
-            req = urllib.request.Request(
-                f"https://html.duckduckgo.com/html/?q={encoded_q}",
-                headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-            )
-            with urllib.request.urlopen(req, timeout=8) as r:
-                html = r.read().decode('utf-8', errors='ignore')
-                
-                blocks = re.findall(r'<div class="result__body">.*?</div>', html, re.DOTALL)
-                
-                for block in blocks[:n]:
-                    title_match = re.search(r'class="result__a"[^>]*>(.*?)</a>', block, re.DOTALL)
-                    snippet_match = re.search(r'class="result__snippet"[^>]*>(.*?)</a>', block, re.DOTALL)
-                    
-                    if title_match and snippet_match:
-                        title = re.sub(r'<[^>]+>', '', title_match.group(1)).strip()
-                        snippet = re.sub(r'<[^>]+>', '', snippet_match.group(1)).strip()
-                        
-                        url_match = re.search(r'href=["\']([^"\']+)', title_match.group(0))
-                        url = url_match.group(1) if url_match else ""
-                        
-                        if len(snippet) > 20:
-                            results.append({
-                                "title": title,
-                                "snippet": snippet,
-                                "url": url
-                            })
-        except Exception as e:
-            print(f"⚠️ Errore WebSearch: {e}")
-            
-        return results
-    
 def main():
     print("\n" + "="*60)
-    print("🤖 ArcadiaAI - Versione con Polling Persistente")
+    print("🤖 ArcadiaAI - Versione con CES-360 su Hugging Face")
+    print("🧠 Modello CES-360: mirkodonato08/CES-360")
+    print("🧠 Deep Research Engine attivo!")
+    print("📊 Piani: free (8 fonti), plus (25 fonti), pro (80 fonti)")
+    print("🤖 Gemini multi-fallback: gemini-2.5-flash, gemini-2.5-pro, gemini-2.5-flash-lite")
+    print("🎨 Modello HD Image: FLUX.1-schnell (Inference API con fallback DoH)")
     print("💾 I messaggi NON vengono persi quando il bot è spento!")
     print("🔒 I nomi reali NON vengono mai inviati alle API!")
     print("🖼️ Analisi immagini con CES Image Viewer integrata")
     print("📌 /ai funziona in gruppi e supergruppi!")
     print("🔧 /alias_test per testare il sistema")
+    print("🧠 /memoria per vedere lo stato della memoria")
+    print("🧹 /clear_memory per cancellare la memoria")
+    print("🧠 /ces-360 per interrogare il modello CES-360")
+    print("🎨 /img_plus per generare immagini ad alta definizione")
     print("🌐 Risponde SEMPRE in ITALIANO")
     print("📜 Licenza: MPL 2.0")
     print("="*60 + "\n")
     
+    deep_engine.start()
+    print("🧠 Motore Deep Research avviato correttamente")
+    
     bot = ArcadiaBot()
     if not bot.test():
+        deep_engine.stop()
         sys.exit(1)
     
     print(f"✅ Pronto! RAM: {bot._mem():.1f}MB")
@@ -1698,6 +3433,17 @@ def main():
     print(f"🔍 Trigger configurati: {len(TRIGGER_PHRASES)}")
     print(f"🖼️ CES Image Viewer disponibile: {HAS_IMAGE_VIEWER}")
     print(f"🔒 Alias caricati: {len(WIKIALIAS)}")
+    if HF_TOKEN:
+        print(f"🧠 Hugging Face configurato: {HF_MODEL}")
+        print(f"🔑 Token: {HF_TOKEN[:10]}...{HF_TOKEN[-4:]}")
+    else:
+        print(f"⚠️ Hugging Face NON configurato! /ces-360 e /img_plus non funzioneranno.")
+        print("   Aggiungi HUGGINGFACE_TOKEN=tuo_token nel file .env")
+    if GEMINI_API_KEY:
+        print(f"✅ Gemini API Key configurata")
+        print(f"   Modelli: {', '.join(AIClient.GEMINI_MODELS)}")
+    else:
+        print(f"⚠️ Gemini API Key non configurata! Aggiungi GEMINI_API_KEY nel file .env")
     print("\n")
     
     try:
@@ -1705,9 +3451,12 @@ def main():
     except KeyboardInterrupt:
         print("\n👋 Spegnimento bot eseguito correttamente.")
     except Exception as e:
-        print(f"\n❌ Errore critico: {e}")
+        print(f"\n❌ Errore di rete o d'avvio: {e}")
         bot.db.close()
+        deep_engine.stop()
         sys.exit(1)
+    finally:
+        deep_engine.stop()
 
 if __name__ == "__main__":
     main()
