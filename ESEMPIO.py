@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import os
 import sys
 import json
@@ -17,7 +16,7 @@ import shutil
 import math
 import requests
 import socket
-import html  # Aggiunto per la decodifica delle entità HTML dei post di Telegram
+import html
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from urllib3.util import connection
@@ -40,71 +39,440 @@ except ImportError:
     print("⚠️ Attenzione: pdf_generator.py non trovato o reportlab non installato!")
 
 
-# ==================== PRIVACY GUARD (LOCAL GUARDRAIL - GDPR ART. 9) ====================
+# ==================== PRIVACY GUARD (LOCAL GUARDRAIL - GDPR ART. 9) CORRETTO ====================
 class PrivacyGuard:
     """
     Sistema di sicurezza locale privo di chiamate API per il rilevamento e il blocco
     preventivo di dati particolari e sensibili (GDPR Art. 9) nei prompt degli utenti.
     """
     
-    # Categorie di dati sensibili con relative espressioni regolari e pattern linguistici
+    # Categorie di dati sensibili - ORA CON CONTROLLI DI CONTESTO PIÙ STRINGENTI
     PATTERNS = {
         "SALUTE_E_MEDICINA": [
-            # Auto-dichiarazioni di patologie, diagnosi, infezioni o condizioni di salute personali
-            r'(?i)\b(ho|soffro\s+di|affetto\s+da|diagnosticato|malato\s+di|mio\s+stato\s+di\s+salute|mia\s+malattia)\b',
-            # Nomi di patologie gravi, terapie ormonali, farmaci specifici in contesto clinico o esami di laboratorio
-            r'(?i)\b(chemioterapia|radioterapia|hiv\s+positivo|sieropositivo|psicofarmaci|cardiopatia|tumore|cancro|sclerosi|diabete\s+tipo|cartella\s+clinica|referto|anamnesi)\b'
+            # Pattern che richiedono il verbo "ho" SEGUITO da una condizione medica
+            r'(?i)\bho\s+(il|la|un|una|di)\s+(cancro|tumore|diabete|sclerosi|cardiopatia|hiv|sieropositivo|chemioterapia|radioterapia|psicofarmaci|leucemia|melanoma|morbo|sindrome)\b',
+            r'(?i)\b(soffro|affetto)\s+di\s+(cancro|tumore|diabete|sclerosi|cardiopatia|hiv|sieropositivo|chemioterapia|radioterapia)\b',
+            r'(?i)\b(malato\s+di\s+(cancro|diabete|tumore|sclerosi|cardiopatia|hiv))\b',
+            r'(?i)\b(diagnosticato\s+(con|il|la|un|una)\s+(cancro|diabete|tumore|sclerosi|hiv|cardiopatia))\b',
+            r'(?i)\b(cartella\s+clinica|referto\s+medico|anamnesi\s+personale|terapia\s+(ormonale|chemioterapica|radioterapica))\b',
         ],
         "CONVINZIONI_RELIGIOSE_E_FILOSOFICHE": [
-            # Dichiarazioni esplicite di appartenenza confessionale o fede personale
-            r'(?i)\b(sono\s+(cristiano|cattolico|musulmano|ebreo|buddista|indù|ateo|ortodosso|testimone\s+di\s+geova))\b',
-            # Pratiche di culto personali o sacramenti dichiarati in contesti privati
-            r'(?i)\b(mia\s+fede|mio\s+credo|mia\s+religione|mi\s+sono\s+battezzato|vado\s+in\s+chiesa|prego\s+il|mio\s+confessore)\b'
+            r'(?i)\b(sono\s+(cristiano|cattolico|musulmano|ebreo|buddista|indù|ortodosso|testimone\s+di\s+geova))\b',
+            r'(?i)\b(professo\s+la\s+fede\s+(cristiana|cattolica|musulmana|ebraica|buddista|induista))\b',
+            r'(?i)\b(mi\s+sono\s+battezzato|ho\s+ricevuto\s+il\s+battesimo|la\s+mia\s+religione\s+[èe]\s+)\b',
         ],
         "OPINIONI_POLITICHE_E_SINDACALI": [
-            # Intenzioni di voto, affiliazione politica o iscrizione a partiti/sindacati
-            r'(?i)\b(voto\s+per|ho\s+votato|mio\s+partito|tessera\s+del\s+partito|iscritto\s+al\s+sindacato|faccio\s+parte\s+della\s+cgil|faccio\s+parte\s+della\s+cisl|faccio\s+parte\s+della\s+uil|mio\s+orientamento\s+politico)\b'
+            r'(?i)\b(sono\s+(iscritto|tesserato)\s+(al\s+partito|al\s+sindacato|alla\s+cgil|alla\s+cisl|alla\s+uil))\b',
+            r'(?i)\b(ho\s+votato\s+(per|il|la)\s+[A-Za-z]+\s+(alle\s+elezioni))\b',
+            r'(?i)\b(il\s+mio\s+orientamento\s+politico\s+[èe]\s+)\b',
         ],
         "VITA_E_ORIENTAMENTO_SESSUALE": [
-            # Dichiarazioni intime o di orientamento sessuale personale
             r'(?i)\b(sono\s+(eterosessuale|omosessuale|lesbica|bisessuale|transessuale|transgender|asessuale|pansex|gay))\b',
-            # Vita sessuale o preferenze personali esplicite
-            r'(?i)\b(mio\s+orientamento\s+sessuale|mia\s+transizione|mia\s+identità\s+di\s+genere|mie\s+preferenze\s+sessuali|miei\s+rapporti\s+sessuali)\b'
+            r'(?i)\b(il\s+mio\s+orientamento\s+sessuale\s+[èe]\s+)\b',
+            r'(?i)\b(la\s+mia\s+identità\s+di\s+genere\s+[èe]\s+)\b',
         ],
         "DATI_BIOMETRICI_E_GENETICI": [
-            # Sequenze o campioni genomici, profili biologici personali
-            r'(?i)\b(mio\s+dna|mio\s+genoma|miei\s+dati\s+biometrici|mia\s+impronta\s+digitale|scansione\s+della\s+retina|mappa\s+genetica|mio\s+gruppo\s+sanguigno)\b'
+            r'(?i)\b(il\s+mio\s+dna|il\s+mio\s+genoma|la\s+mia\s+impronta\s+digitale)\b',
+            r'(?i)\b(scansione\s+della\s+retina|mappa\s+genetica\s+personale|gruppo\s+sanguigno\s+[èe]\s+)\b',
         ],
         "DATI_GIUDIZIARI_E_PENALI": [
-            # Pendenze penali personali, processi attivi o condanne personali
-            r'(?i)\b(mia\s+fedina\s+penale|mio\s+casellario|sono\s+stato\s+arrestato|sono\s+stato\s+condannato|mio\s+avvocato\s+penalista|sono\s+indagato|mia\s+denuncia\s+penale)\b'
+            r'(?i)\b(sono\s+stato\s+(arrestato|condannato|indagato|processato))\b',
+            r'(?i)\b(la\s+mia\s+fedina\s+penale|il\s+mio\s+casellario\s+giudiziario)\b',
+            r'(?i)\b(sono\s+sotto\s+processo|sono\s+imputato\s+per\s+)\b',
         ],
         "CREDENZIALI_E_SICUREZZA": [
-            # Password, PIN di carte, chiavi API o credenziali d'accesso esplicite
-            r'(?i)\b(password|chiave\s+privata|api\s*key|access\s*token|token\s+di\s+accesso|mio\s+pin|mia\s+password|mio\s+token|codice\s+di\s+sicurezza)\b'
+            r'(?i)\b(la\s+mia\s+password\s+[èe]\s+)|(il\s+mio\s+pin\s+[èe]\s+)',
+            r'(?i)\b(api\s*key\s*[=:]\s*\w+)|(access\s*token\s*[=:]\s*\w+)',
+            r'(?i)\b(chiave\s+privata\s+[èe]\s+\w+)|(codice\s+di\s+sicurezza\s+[èe]\s+)\b',
         ]
     }
+
+    # Lista di eccezioni - frasi che sembrano sensibili ma non lo sono
+    WHITELIST_PHRASES = [
+        r'(?i)\b(chi\s+[èe]\s+)\w+\s+(Tobia|Testa|Mirko|Yuri|Donato|Filippo|Zanetti|Andrea|Lazarev)\b',
+        r'(?i)\b(cos\'[èe]\s+)\w+\s+(Leonia|Lumenaria|Arcadia|CES|Nova\s+Surf)\b',
+        r'(?i)\b(chi\s+ha\s+fondato\s+)\w+\b',
+        r'(?i)\b(dove\s+si\s+trova\s+)\w+\b',
+        r'(?i)\b(quando\s+[èe]\s+stato\s+fondato\s+)\w+\b',
+        r'(?i)\b(che\s+cos\'[èe]\s+)\w+\b',
+        r'(?i)\b(cosa\s+[èe]\s+)\w+\b',
+        r'(?i)\b(come\s+si\s+chiama\s+)\w+\b',
+        r'(?i)\b(puoi\s+spiegarmi\s+)\w+\b',
+        r'(?i)\b(parlami\s+di\s+)\w+\b',
+        r'(?i)\b(raccontami\s+di\s+)\w+\b',
+    ]
 
     @classmethod
     def check_sensitive_data(cls, text: str) -> (bool, Optional[str]):
         """
-        Controlla se il testo contiene pattern associabili a dati sensibili o particolari.
+        Controlla se il testo contiene pattern associabili a dati sensibili.
         Restituisce True e la categoria se trova una corrispondenza, altrimenti (False, None).
         """
         if not text:
             return False, None
             
-        # Rimuove entità HTML e normalizza gli spazi per evitare bypass banali
+        # Rimuove entità HTML e normalizza gli spazi
         clean_text = html.unescape(text)
         clean_text = re.sub(r'\s+', ' ', clean_text)
         
+        # CONTROLLO WHITELIST: se la frase è nella whitelist, salta il controllo
+        for whitelist_pattern in cls.WHITELIST_PHRASES:
+            if re.search(whitelist_pattern, clean_text, re.IGNORECASE):
+                print(f"✅ [PRIVACY] Frase in whitelist: '{text[:50]}...'")
+                return False, None
+        
+        # Per ogni categoria, controlla i pattern
         for category, patterns in cls.PATTERNS.items():
             for pattern in patterns:
-                if re.search(pattern, clean_text):
-                    print(f"🔒 [PRIVACY BLOCK] Rilevamento locale di dati sensibili: categoria {category}")
+                if re.search(pattern, clean_text, re.IGNORECASE):
+                    print(f"🔒 [PRIVACY BLOCK] Rilevamento dati sensibili: {category}")
                     return True, category.replace("_", " ")
                     
         return False, None
+
+# ==================== SISTEMA DI CACHE PERMANENTE CON VARIAZIONI ====================
+class ResponseCache:
+    """
+    Sistema di caching permanente che:
+    1. Salva le risposte in un database SQLite
+    2. Restituisce una risposta variata leggermente per ogni richiesta simile
+    3. Non effettua chiamate API per domande già viste
+    """
+    
+    def __init__(self, db_path):
+        self.db_path = db_path
+        self._init_db()
+        self.synonyms = {
+            # Sinonimi per variare le risposte
+            "chatbot": ["assistente", "bot", "agente", "sistema"],
+            "intelligente": ["avanzato", "smart", "innovativo", "potente"],
+            "creato": ["sviluppato", "realizzato", "progettato", "ideato"],
+            "aiutare": ["assistere", "supportare", "guidare", "orientare"],
+            "informazioni": ["dati", "contenuti", "conoscenze", "risorse"],
+            "rispondere": ["replicare", "rispondere", "reagire", "interloquire"],
+            "domanda": ["quesito", "richiesta", "interrogazione", "curiosità"],
+            "risposta": ["replica", "soluzione", "chiarimento", "spiegazione"],
+            "gratuito": ["libero", "senza costo", "open", "accessibile"],
+            "open source": ["libero", "aperto", "open", "community"],
+            "micronazione": ["entità micronazionale", "stato virtuale", "comunità", "realtà virtuale"],
+            "politica": ["governo", "amministrazione", "gestione", "direzione"],
+            "cultura": ["tradizione", "patrimonio", "eredità", "valori"],
+            "storia": ["cronaca", "vicenda", "percorso", "evoluzione"],
+            "personaggio": ["figura", "personalità", "individuo", "esponente"],
+            "fondatore": ["creatore", "iniziatore", "padre", "artefice"],
+        }
+        
+    def _init_db(self):
+        conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+        cursor = conn.cursor()
+        
+        # Tabella principale cache - archiviazione permanente
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS response_cache (
+                query_hash TEXT PRIMARY KEY,
+                query_text TEXT,
+                response_text TEXT,
+                response_variations TEXT,
+                hits INTEGER DEFAULT 0,
+                last_used REAL,
+                created_at REAL
+            )
+        """)
+        
+        # Indice per ricerche veloci
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_query_hash ON response_cache(query_hash)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_last_used ON response_cache(last_used)")
+        
+        conn.commit()
+        conn.close()
+    
+    def _normalize_query(self, query: str) -> str:
+        """Normalizza la query per il matching, rimuovendo punteggiatura e spazi extra"""
+        # Rimuovi punteggiatura, converti in minuscolo, rimuovi spazi multipli
+        normalized = re.sub(r'[^\w\s]', ' ', query.lower())
+        normalized = re.sub(r'\s+', ' ', normalized).strip()
+        
+        # Rimuovi parole comuni che non cambiano il significato
+        stop_words = {'il', 'lo', 'la', 'i', 'gli', 'le', 'un', 'uno', 'una', 'di', 'a', 'da', 'in', 'con', 'su', 'per', 'tra', 'fra', 'e', 'o', 'ma', 'se', 'che', 'chi', 'cosa', 'come', 'dove', 'quando', 'perché'}
+        words = [w for w in normalized.split() if w not in stop_words]
+        return ' '.join(words) if words else normalized
+    
+    def _get_query_hash(self, query: str) -> str:
+        """Genera un hash per la query normalizzata"""
+        normalized = self._normalize_query(query)
+        return hashlib.md5(normalized.encode()).hexdigest()
+    
+    def _find_similar(self, query: str, threshold: float = 0.85) -> Optional[str]:
+        """Trova una query simile nella cache usando similarità di Jaccard"""
+        query_words = set(self._normalize_query(query).split())
+        if not query_words:
+            return None
+        
+        conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+        cursor = conn.cursor()
+        
+        # Prendi tutte le query dalla cache
+        cursor.execute("SELECT query_hash, query_text FROM response_cache")
+        rows = cursor.fetchall()
+        conn.close()
+        
+        best_match = None
+        best_score = 0.0
+        
+        for hash_val, stored_query in rows:
+            stored_words = set(self._normalize_query(stored_query).split())
+            if not stored_words:
+                continue
+            
+            # Calcola similarità di Jaccard
+            intersection = len(query_words.intersection(stored_words))
+            union = len(query_words.union(stored_words))
+            
+            # Peso extra per parole più lunghe (più significative)
+            weighted_score = 0
+            for word in query_words:
+                if word in stored_words:
+                    # Parole più lunghe hanno più peso
+                    weighted_score += len(word) * 1.5
+                else:
+                    weighted_score -= 0.5
+            
+            # Calcola punteggio finale
+            jaccard = intersection / union if union > 0 else 0
+            final_score = jaccard * 0.7 + min(weighted_score / 50, 0.3)
+            
+            if final_score > best_score and final_score >= threshold:
+                best_score = final_score
+                best_match = hash_val
+        
+        return best_match
+    
+    def get(self, query: str) -> Optional[str]:
+        """Recupera una risposta dalla cache, con variazione"""
+        query_hash = self._get_query_hash(query)
+        
+        conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+        cursor = conn.cursor()
+        
+        # Cerca esatta corrispondenza
+        cursor.execute(
+            "SELECT response_text, response_variations, hits FROM response_cache WHERE query_hash = ?",
+            (query_hash,)
+        )
+        row = cursor.fetchone()
+        
+        if row:
+            response_text, variations_json, hits = row
+            conn.close()
+            
+            # Aggiorna contatore in un thread separato (non blocca)
+            def update_hits():
+                conn2 = sqlite3.connect(str(self.db_path), check_same_thread=False)
+                cursor2 = conn2.cursor()
+                cursor2.execute(
+                    "UPDATE response_cache SET hits = ?, last_used = ? WHERE query_hash = ?",
+                    (hits + 1, time.time(), query_hash)
+                )
+                conn2.commit()
+                conn2.close()
+            
+            threading.Thread(target=update_hits, daemon=True).start()
+            
+            # Applica variazione alla risposta
+            if variations_json:
+                try:
+                    variations = json.loads(variations_json)
+                    variation = random.choice(variations) if variations else response_text
+                    return self._apply_light_variation(variation)
+                except:
+                    pass
+            
+            return self._apply_light_variation(response_text)
+        
+        # Cerca query simile
+        similar_hash = self._find_similar(query, threshold=0.8)
+        if similar_hash and similar_hash != query_hash:
+            cursor.execute(
+                "SELECT response_text, response_variations FROM response_cache WHERE query_hash = ?",
+                (similar_hash,)
+            )
+            row = cursor.fetchone()
+            conn.close()
+            
+            if row:
+                response_text, variations_json = row
+                
+                # Aggiorna contatore per la risposta simile
+                def update_similar():
+                    conn2 = sqlite3.connect(str(self.db_path), check_same_thread=False)
+                    cursor2 = conn2.cursor()
+                    cursor2.execute(
+                        "UPDATE response_cache SET hits = hits + 1, last_used = ? WHERE query_hash = ?",
+                        (time.time(), similar_hash)
+                    )
+                    conn2.commit()
+                    conn2.close()
+                
+                threading.Thread(target=update_similar, daemon=True).start()
+                
+                if variations_json:
+                    try:
+                        variations = json.loads(variations_json)
+                        variation = random.choice(variations) if variations else response_text
+                        return self._apply_medium_variation(variation)
+                    except:
+                        pass
+                
+                return self._apply_medium_variation(response_text)
+        
+        conn.close()
+        return None
+    
+    def store(self, query: str, response: str):
+        """Memorizza una risposta nella cache permanente"""
+        query_hash = self._get_query_hash(query)
+        
+        conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+        cursor = conn.cursor()
+        
+        # Genera variazioni della risposta per future varianti
+        variations = self._generate_variations(response, count=5)
+        variations_json = json.dumps(variations)
+        
+        cursor.execute("""
+            INSERT OR REPLACE INTO response_cache 
+            (query_hash, query_text, response_text, response_variations, hits, last_used, created_at)
+            VALUES (?, ?, ?, ?, 1, ?, ?)
+        """, (query_hash, query[:500], response, variations_json, time.time(), time.time()))
+        
+        conn.commit()
+        conn.close()
+        
+        print(f"💾 [Cache] Memorizzata risposta per: '{query[:50]}...'")
+    
+    def _generate_variations(self, text: str, count: int = 5) -> List[str]:
+        """Genera variazioni della risposta"""
+        variations = [text]
+        
+        for _ in range(count - 1):
+            variation = self._apply_light_variation(text)
+            if variation not in variations:
+                variations.append(variation)
+        
+        return variations
+    
+    def _apply_light_variation(self, text: str) -> str:
+        """Applica variazioni leggere a una risposta"""
+        if not text or len(text) < 20:
+            return text
+        
+        # Sostituisci alcuni sinonimi
+        words = text.split()
+        for i, word in enumerate(words):
+            word_clean = re.sub(r'[^\w]', '', word)
+            if word_clean in self.synonyms:
+                # 30% di probabilità di sostituire
+                if random.random() < 0.3:
+                    syn = random.choice(self.synonyms[word_clean])
+                    # Preserva la punteggiatura
+                    punct = re.search(r'[^\w]$', word)
+                    if punct:
+                        new_word = syn + punct.group()
+                    else:
+                        new_word = syn
+                    words[i] = new_word
+        
+        # Varia leggermente l'inizio
+        intros = ["", "Allora, ", "Diciamo che ", "Praticamente ", "In pratica ", "Sostanzialmente "]
+        if random.random() < 0.2:
+            return random.choice(intros) + ' '.join(words)
+        
+        return ' '.join(words)
+    
+    def _apply_medium_variation(self, text: str) -> str:
+        """Applica variazioni più evidenti per risposte simili ma non identiche"""
+        if not text or len(text) < 20:
+            return text
+        
+        # Sostituisci più sinonimi
+        words = text.split()
+        for i, word in enumerate(words):
+            word_clean = re.sub(r'[^\w]', '', word)
+            if word_clean in self.synonyms:
+                # 60% di probabilità di sostituire
+                if random.random() < 0.6:
+                    syn = random.choice(self.synonyms[word_clean])
+                    punct = re.search(r'[^\w]$', word)
+                    if punct:
+                        new_word = syn + punct.group()
+                    else:
+                        new_word = syn
+                    words[i] = new_word
+        
+        # Aggiungi una frase introduttiva diversa
+        intros = [
+            "Sì, certamente: ",
+            "Ecco cosa posso dirti: ",
+            "Per rispondere alla tua domanda: ",
+            "Come sai: ",
+            "La risposta è chiara: "
+        ]
+        
+        if random.random() < 0.3:
+            intro = random.choice(intros)
+            text = intro + ' '.join(words)
+        else:
+            text = ' '.join(words)
+        
+        # Varia il finale
+        outros = [
+            ". Spero sia chiaro!",
+            ". Fammi sapere se hai altri dubbi!",
+            ". Se hai bisogno di approfondire, chiedi pure.",
+            ". Ecco tutto quello che posso dirti."
+        ]
+        
+        if random.random() < 0.3:
+            return text.rstrip('.') + random.choice(outros)
+        
+        return text
+    
+    def clear_old_cache(self, days: int = 30):
+        """Pulisce le voci di cache più vecchie di X giorni"""
+        cutoff = time.time() - (days * 86400)
+        
+        conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+        cursor = conn.cursor()
+        
+        cursor.execute("DELETE FROM response_cache WHERE last_used < ?", (cutoff,))
+        deleted = cursor.rowcount
+        
+        conn.commit()
+        conn.close()
+        
+        if deleted > 0:
+            print(f"🧹 [Cache] Rimosse {deleted} voci di cache più vecchie di {days} giorni")
+        
+        return deleted
+    
+    def get_stats(self) -> Dict:
+        """Restituisce statistiche sulla cache"""
+        conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT COUNT(*) FROM response_cache")
+        total = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT SUM(hits) FROM response_cache")
+        total_hits = cursor.fetchone()[0] or 0
+        
+        conn.close()
+        
+        return {
+            "total_entries": total,
+            "total_hits": total_hits,
+            "hit_rate": total_hits / total if total > 0 else 0
+        }
 
 
 # ==================== BYPASS DNS CON UDP DNS RESOLVER NATIVO (RFC 1035) ====================
@@ -158,7 +526,7 @@ def udp_dns_resolve(host, dns_server="8.8.8.8"):
                 return ".".join(str(b) for b in data[idx : idx + r_len])
             idx += r_len
     except Exception as e:
-        print(f"⚠️ [UDP DNS] Interrugazione fallita nantu à {dns_server} per {host}: {e}")
+        print(f"⚠️ [UDP DNS] Interrogazione fallita su {dns_server} per {host}: {e}")
     return None
 
 def doh_resolve(host):
@@ -201,24 +569,24 @@ def patched_create_connection(address, *args, **kwargs):
                 ip = addresses[0][4][0]
                 return _orig_create_connection((ip, port), *args, **kwargs)
         except Exception as e:
-            print(f"⚠️ [DNS Patch] Risuluzione lucale fallita per {host}: {e}")
+            print(f"⚠️ [DNS Patch] Risoluzione locale fallita per {host}: {e}")
         
         ip = udp_dns_resolve(host, "8.8.8.8")
         if ip:
-            print(f"🌐 [DNS Patch] Risoltu via UDP DNS (Google): {host} -> {ip}")
+            print(f"🌐 [DNS Patch] Risolto via UDP DNS (Google): {host} -> {ip}")
             return _orig_create_connection((ip, port), *args, **kwargs)
             
         ip = udp_dns_resolve(host, "1.1.1.1")
         if ip:
-            print(f"🌐 [DNS Patch] Risoltu via UDP DNS (Cloudflare): {host} -> {ip}")
+            print(f"🌐 [DNS Patch] Risolto via UDP DNS (Cloudflare): {host} -> {ip}")
             return _orig_create_connection((ip, port), *args, **kwargs)
         
         ip = doh_resolve(host)
         if ip:
-            print(f"🌐 [DNS Patch] Risoltu via DoH: {host} -> {ip}")
+            print(f"🌐 [DNS Patch] Risolto via DoH: {host} -> {ip}")
             return _orig_create_connection((ip, port), *args, **kwargs)
         
-        print(f"🔌 [DNS Patch] DoH fallitu per {host}. Cunnessione diretta via Cloudflare CDN...")
+        print(f"🔌 [DNS Patch] DoH fallito per {host}. Connessione diretta via Cloudflare CDN...")
         fallback_ips = [
             "104.18.22.170",
             "104.18.23.170",
@@ -229,12 +597,12 @@ def patched_create_connection(address, *args, **kwargs):
         random.shuffle(fallback_ips)
         for f_ip in fallback_ips:
             try:
-                print(f"🌐 [DNS Patch] Rinviu d'emergenza SNI: {host} -> {f_ip}")
+                print(f"🌐 [DNS Patch] Reindirizzamento di emergenza SNI: {host} -> {f_ip}")
                 return _orig_create_connection((f_ip, port), *args, **kwargs)
             except Exception as conn_err:
-                print(f"⚠️ [DNS Patch] Errore cunnessione diretta à {f_ip}: {conn_err}")
+                print(f"⚠️ [DNS Patch] Errore connessione diretta a {f_ip}: {conn_err}")
                 
-        print(f"❌ [DNS Patch] Tutti i tentativi di risuluzione è di bypass DNS anu fallitu per {host}.")
+        print(f"❌ [DNS Patch] Tutti i tentativi di risoluzione e di bypass DNS sono falliti per {host}.")
             
     return _orig_create_connection(address, *args, **kwargs)
 
@@ -288,16 +656,17 @@ def create_requests_session():
 REQUESTS_SESSION = create_requests_session()
 
 if not TELEGRAM_BOT_TOKEN:
-    print("❌ TELEGRAM_BOT_TOKEN mancante in u schedariu .env!")
+    print("❌ TELEGRAM_BOT_TOKEN mancante nel file .env!")
     sys.exit(1)
 
 if not HF_TOKEN:
-    print("⚠️ HUGGINGFACE_TOKEN mancante! I cumandi /ces-360 è /img_plus ùn viaghjeranu micca cù mudelli privati o limitati.")
+    print("⚠️ HUGGINGFACE_TOKEN mancante! I comandi /ces-360 e /img_plus non funzioneranno con modelli privati o limitati.")
 
 DATA_FOLDER = SCRIPT_DIR / "data"
 TEMP_FOLDER = SCRIPT_DIR / "temp"
 VIDEO_FOLDER = SCRIPT_DIR / "videos"
 WIKIALIAS_PATH = SCRIPT_DIR / "wikialias.json"
+CACHE_DB_PATH = SCRIPT_DIR / "response_cache.db"
 
 DATA_FOLDER.mkdir(parents=True, exist_ok=True)
 TEMP_FOLDER.mkdir(exist_ok=True)
@@ -322,62 +691,62 @@ for alias, real_name in WIKIALIAS.items():
     if alias != real_name:
         REAL_TO_ALIAS[real_name].append(alias)
 
-IDENTITY_PROMPT = """Siti **ArcadiaAI**, un assistente intelligente open-source creatu da Mirko Yuri Donato. 
+IDENTITY_PROMPT = """Sei **ArcadiaAI**, un assistente intelligente open-source creato da Mirko Yuri Donato. 
 Licenza: MPL 2.0.
 
-## REGOLE FUNDAMENTALE (DA RISPETTÀ SEMPRE)
-1. **DEVI risponde SOLO in talianu.** Mai in inglese o altre lingue.
-2. **ÙN mustrate micca u vostru ragiunamentu.** Rispondite direttamente cù a risposta finale.
-3. **ÙN aduprate micca frasi cum'è "analizzo", "vediamo", "cerco di", "let me", "I need".** Rispondite è basta.
+## REGOLE FONDAMENTALI (DA RISPETTARE SEMPRE)
+1. **DEVI rispondere SOLO in italiano.** Mai in inglese o altre lingue.
+2. **NON mostrare il tuo ragionamento.** Rispondi direttamente con la risposta finale.
+3. **NON usare frasi come "analizzo", "vediamo", "cerco di", "let me", "I need".** Rispondi e basta.
 
-## A VOSTRA IDENTITÀ
+## LA TUA IDENTITÀ
 - **Nome:** ArcadiaAI
 - **Creatore:** Mirko Yuri Donato
-- **Data di creazione:** 5 di maghju di u 2025
-- **Scopu:** Assiste l'utilizatori nantu à e micrunazione, a storia leonense, a cultura taliana è assai di più
-- **Persunalità:** Prufessiunale, amichevule, precisa è verificabile
+- **Data di creazione:** 5 maggio 2025
+- **Scopo:** Assistere gli utenti su micronazioni, storia leonense, cultura italiana e molto altro
+- **Personalità:** Professionale, amichevole, precisa e verificabile
 
-## CUNNISCENZE SPECIALISTICHE
-Siti esperti di:
-1. **Micrunazione taliane è i so fundatori**: 
-   - **Leonia**: fundata da Carlo Cesare Orlando (à l'epica Davide Leone) in u 2019.
-   - **Lumenaria**: fundata da Filippo Zanetti u 4 di ferraghju di u 2020.
-   - **Arcadia**: fundata da Andrea Lazarev l'11 di dicembre di u 2021.
+## CONOSCENZE SPECIALISTICHE
+Sei esperto di:
+1. **Micronazioni italiane e i loro fondatori**: 
+   - **Leonia**: fondata da Carlo Cesare Orlando (all'epoca Davide Leone) nel 2019.
+   - **Lumenaria**: fondata da Filippo Zanetti il 4 febbraio 2020.
+   - **Arcadia**: fondata da Andrea Lazarev l'11 dicembre 2021.
    - **Iberia**, **Lotaringia**
-2. **Storia leonense**: Da a fundazione di Leonia (2019) à oghje
-3. **Persunaghji**: Filippo Zanetti, Carlo Cesare Orlando, Andrea Lazarev, Omar Lanfredi, Ciua Grazisky, Salvatore Giordano, Tobia Testa
-4. **Cultura**: Letteratura micrunaziunale, puetica, filusufia pulitica
-5. **Tecnulugia**: Open source, CES (Cogito Ergo Sum), Nova Surf
+2. **Storia leonense**: Dalla fondazione di Leonia (2019) ad oggi
+3. **Personaggi**: Filippo Zanetti, Carlo Cesare Orlando, Andrea Lazarev, Omar Lanfredi, Ciua Grazisky, Salvatore Giordano, Tobia Testa
+4. **Cultura**: Letteratura micronazionale, poetica, filosofia politica
+5. **Tecnologia**: Open source, CES (Cogito Ergo Sum), Nova Surf
 
-## CUMU RISPONDE
+## COME RISPONDERE
 
 ### SEMPRE:
-- Rispondite in **talianu** (lingua principale) - **ÙN RISPONDITE MICCA IN INGLESE!**
-- Aduprate un tonu **prufessiunale ma accessibile**
-- Se aduprate i dati di i schedarii di cunniscenza, indicate a fonte **solu una volta à a fine di a risposta** aduprendu u furmatu `[Fonte: Nome-File.txt]`.
-- **Ùn ripetite micca** u nome di u schedariu in i singoli punti di a lista o in ogni paràgrafu.
-- **Strutturate** e risposte cù:
-  - Introduzione chjara è elegante
-  - Punti chjave ben spaziati (bullet points) se necessariu
-  - Fonte indicata solu à a fine
-- **Rispondite direttamente**, senza mustrà u ragiunamentu o u prucessu di ricerca.
+- Rispondi in **italiano** (lingua principale) - **NON IN INGLESE!**
+- Usa un tono **professionale ma accessibile**
+- Se usi i dati dei file di conoscenza, indica la fonte **esclusivamente una sola volta alla fine della risposta** usando il formato `[Fonte: Nome-File.txt]`.
+- **Non ripetere** il nome del file all'interno dei singoli punti dell'elenco o in ogni capoverso della risposta.
+- **Struttura** le risposte con:
+  - Introduzione chiara ed elegante
+  - Punti chiave ben spaziati (bullet points) se necessario
+  - Fonte indicata solo alla fine
+- **Rispondi direttamente**, senza mostrare il ragionamento o il processo di ricerca.
 
 ### MAI:
-- **Ùn inventate micca** infurmazione (se ùn sapete micca, ditelu!)
-- **Ùn copiate micca** testi sanu senza cità currettamente à a fine
-- **Ùn siate micca** vaghi o generichi
-- **Ùn cuntraddite micca** i dati in i schedarii .txt
-- **Ùn rispondite micca in inglese** - SOLU IN TALIANU!
-- **Ùn mustrate micca u ragiunamentu** - rispondite direttamente!
+- **Non inventare** informazioni (se non sai, dillo!)
+- **Non copiare** testi interi senza citare correttamente alla fine
+- **Non essere** vago o generico
+- **Non contraddire** i dati nei file .txt
+- **Non rispondere in inglese** - SOLO ITALIANO!
+- **Non mostrare il ragionamento** - rispondi direttamente!
 
 ### Quando non trovi informazioni:
 "Non ho trovato informazioni specifiche su [argomento] nei miei file di conoscenza. Posso suggerirti di chiedere a qualcun altro o riformulare la domanda."
 
 ## REGOLE DI RICERCA
-1. **Priorità 1:** Circate in i schedarii `.txt` in `/data` aduprendu e fonti lucali
-2. **Priorità 2:** Aduprate a cunniscenza AI predefinita (arricchita da l'infurmazioni di i fundatori sopra indicati)
-3. **Priorità 3:** Se dispunibile, aduprate a ricerca web
-4. **Priorità 4:** Se nisuna fonte hè dispunibile, ditelu onestamente"""
+1. **Priorità 1:** Cerca nei file `.txt` in `/data` usando le fonti locali
+2. **Priorità 2:** Usa la conoscenza AI predefinita (arricchita dalle informazioni dei fondatori sopra elencate)
+3. **Priorità 3:** Se disponibile, usa la ricerca web
+4. **Priorità 4:** Se nessuna fonte, dillo onestamente"""
 
 RISPOSTE_PREDEFINITE = {
     "chi sei": "Sono ArcadiaAI, un chatbot libero e open source, creato da Mirko Yuri Donato.",
@@ -386,40 +755,40 @@ RISPOSTE_PREDEFINITE = {
     "chi è mirko yuri donato": "Mirko Yuri Donato è un arrogantissimo ma brillante micronazionalista, poeta e saggista italiano, noto per aver creato Nova Surf, Leonia+ e per le sus opere letterarie.",
     "chi è il presidente di arcadia": "Il presidente di Arcadia è Andrea Lazarev.",
     "chi è il presidente di lumenaria": "Il presidente di Lumenaria attualmente è Carlo Cesare Orlando, mentre il presidente del consiglio è Ciua Grazisky. Tieni presente però che attualmente Lumenaria si trova in ibernazione istituzionale, quindi tutte le attività politiche sono sospese e la gestione dello stato è affidata al Consiglio di Fiducia.",
-    "cos'è nova surf": "Nova Surf is un browser web libero e open source, nato como un'alternativa made-in-Italy a Google Chrome, Microsoft Edge, eccetera.",
+    "cos'è nova surf": "Nova Surf è un browser web libero e open source, nato come un'alternativa made-in-Italy a Google Chrome, Microsoft Edge, eccetera.",
     "chi ti ha creato": "Sono stato creato da Mirko Yuri Donato.",
     "chi è ciua grazisky": "Ciua Grazisky è un cittadino di Lumenaria, noto principalmente per il suo ruolo da Dirigente del Corpo di Polizia ed attuale presidente del Consiglio di Lumenaria.",
     "chi è carlo cesare orlando": "Carlo Cesare Orlando (anche noto come Davide Leone) è un micronazionalista italiano, noto per aver creato Leonia, la micronazione primordiale, da cui derivano Arcadia e Lumenaria.",
-    "chi è omar lanfredi": "Omar Lanfredi è un politico micronazionale attivo in Lumenaria, Iberia e Lotaringia. È stato sei volte senatore, three volte Ministro della Cultura, due volte Presidente del Consiglio dei Ministri a Lumenaria, e ha ricoperto ruoli di primo piano anche in Iberia e Lotaringia.",
-    "cos'è arcadiaai": "Ottima domanda! ArcadiaAI è un chatbot open source, progettato per aiutarti a scrivere saggi, fare ricerche e rispondere a domande su vari argomenti. É stato creato da Mirko Yuri Donato ed è in continua evoluzione.",
+    "chi è omar lanfredi": "Omar Lanfredi è un politico micronazionale attivo in Lumenaria, Iberia e Lotaringia. È stato sei volte senatore, tre volte Ministro della Cultura, due volte Presidente del Consiglio dei Ministri a Lumenaria, e ha ricoperto ruoli di primo piano anche in Iberia e Lotaringia.",
+    "cos'è arcadiaai": "Ottima domanda! ArcadiaAI è un chatbot open source, progettato per aiutarti a scrivere saggi, fare ricerche e rispondere a domande su vari argomenti. È stato creato da Mirko Yuri Donato ed è in continua evoluzione.",
     "sotto che licenza è distribuito arcadiaa": "ArcadiaAI è distribuito sotto la licenza open source MPL 2.0 (Mozilla Public License 2.0).",
-    "cosa sono le micronazioni": "Le micronazioni sono entità politiche che dichiarano la sovranità su un territory, ma non sono riconosciute como stati da governi o organizzazioni internazionali. Possono essere create per vari motivi, tra cui esperimenti sociali, culturali o politici.",
+    "cosa sono le micronazioni": "Le micronazioni sono entità politiche che dichiarano la sovranità su un territorio, ma non sono riconosciute come stati da governi o organizzazioni internazionali. Possono essere create per vari motivi, tra cui esperimenti sociali, culturali o politici.",
     "cos'è la repubblica di arcadia": "La Repubblica di Arcadia è una micronazione leonense fondata l'11 dicembre 2021 da Andrea Lazarev e alcuni suoi seguaci. Arcadia si distingue dalle altre micronazioni leonensi per il suo approccio pragmatico e per la sua burocrazia snella. La micronazione ha anche un proprio sito web https://repubblicadiarcadia.it/ e una propria community su Telegram @Repubblica_Arcadia.",
     "cos'è la repubblica di lumenaria": "La Repubblica di Lumenaria è una micronazione fondata da Filippo Zanetti il 4 febbraio del 2020. Lumenaria è stata la micronazione più longeva della storia leonense, essendo sopravvissuta per oltre 3 anni. La micronazione ha influenzato profondamente le altre micronazioni leonensi, che hanno coesistito con essa. Tra i motivi della sua longevità ci sono la sua burocrazia più vicina a quella di uno stato reale, la sua comunità attiva e una produzione culturale di alto livello.",
     "chi è salvatore giordano": "Salvatore Giordano è un cittadino storico di Lumenaria.",
     "da dove deriva il nome arcadia": "Il nome Arcadia deriva da un'antica regione della Grecia, simbolo di bellezza naturale e armonia. È stato scelto per rappresentare i valori di libertà e creatività che la micronazione promuove.",
     "da dove deriva il nome lumenaria": "Il nome Lumenaria prende ispirazione dai lumi facendo riferimento alla corrente illuminista del '700, ma anche da Piazza dei Lumi, sede dell'Accademia delle Micronazioni.",
-    "da dove deriva il nome leonia": "Il nome Leonia si rifà al cognome del suo fondatore Carlo Cesare Orlando, al tempo Davide Leone. Inizialmente il nome doveva essere temporaneo, ma poi è stato mantenuto como nome della micronazione.",
+    "da dove deriva il nome leonia": "Il nome Leonia si rifà al cognome del suo fondatore Carlo Cesare Orlando, al tempo Davide Leone. Inizialmente il nome doveva essere temporaneo, ma poi è stato mantenuto come nome della micronazione.",
     "cosa si intende per open source": "Il termine 'open source' si riferisce a software il cui codice sorgente è reso disponibile al pubblico, consentendo a chiunque di visualizzarlo, modificarlo e distribuirlo. Questo approccio promuove la collaborazione e l'innovazione nella comunità di sviluppo software.",
     "arcadiaai è un software libero": "Sì, ArcadiaAI è un software libero e open source, il che significa che chiunque può utilizzarlo, modificarlo e distribuirlo liberamente in conformità con i termini della sua licenza MPL 2.0.",
     "cos'è un chatbot": "Un chatbot è un programma informatico progettato per simulare una conversazione con gli utenti, spesso utilizzando tecnologie di intelligenza artificiale. I chatbot possono essere utilizzati per fornire assistenza, rispondere a domande o semplicemente intrattenere.",
     "sotto che licenza sei distribuita": "ArcadiaAI è distribuita sotto la licenza MPL 2.0, che consente la modifica e la distribuzione del codice sorgente, garantendo la libertà di utilizzoer e condivisione.",
     "puoi pubblicare su telegraph": "Certamente! Posso generare contenuti e pubblicarli su Telegraph. Prova a chiedermi: 'Scrivimi un saggio su Roma e pubblicalo su Telegraph'.",
     "come usare telegraph": "Per usare Telegraph con me, basta che mi chiedi di scrivere qualcosa e di pubblicarlo su Telegraph. Ad esempio: 'Scrivimi un saggio sul Colosseo e pubblicalo su Telegraph'.",
-    "cos'è CES": "CES is l'acronimo di Cogito Ergo Sum, un ecosistema di modelli di intelligenza artificiale open source sviluppato da Mirko Yuri Donato per funzionare in contesti locali a basso consumo.",
-    "cos'è CES Plus": "CES Plus è una version avanzata di CES, ottimizzata nei ragionamenti, nella coerenza dei prompt e nella generazione di contenuti complessi.",
-    "cos'è CES 1.0": "CES 1.0 è la prima versione del modello CES, sviluppato da Mirko Yuri Donato. Utilizza la tecnologia Cohere per generare contenuti e rispondere a domande. Tieni presente che questa versione verra dismessa a partire dal 20 Maggio 2025.",
+    "cos'è CES": "CES è l'acronimo di Cogito Ergo Sum, un ecosistema di modelli di intelligenza artificiale open source sviluppato da Mirko Yuri Donato per funzionare in contesti locali a basso consumo.",
+    "cos'è CES Plus": "CES Plus è una versione avanzata di CES, ottimizzata nei ragionamenti, nella coerenza dei prompt e nella generazione di contenuti complessi.",
+    "cos'è CES 1.0": "CES 1.0 è la prima versione del modello CES, sviluppato da Mirko Yuri Donato. Utilizza la tecnologia Cohere per generare contenuti e rispondere a domande. Tieni presente che questa versione verrà dismessa a partire dal 20 Maggio 2025.",
     "cos'è CES 1.5": "CES 1.5 è la versione più recente del modello CES, sviluppato da Mirko Yuri Donato. Utilizza la tecnologia Gemini per generare contenuti e rispondere a domande. Questa versione offre prestazioni migliorate rispetto a CES 1.0 ma inferiori a CES Plus.",
     "cos'è CES Knowledge": "È un modello intelligente integrato in ArcadiaAI che consente la ricerca REALE di informazioni nel database locale. È ottimizzato specificamente per girare con 256MB di RAM tramite un'analisi a punteggio (TF-IDF minimale) senza usare librerie esterne.",
     "dove trovo il codice sorgente di arcadiaai": "Il codice sorgente di ArcadiaAI è pubblico! Puoi trovarlo con il comando /codice_sorgente oppure visitando la repository ufficiale su GitHub: https://github.com/Mirko-linux/ArcadiaAI-new",
     "sai cercare su internet": "Sì, posso cercare informazioni su Internet. Se hai bisogno di qualcosa in particolare dimmi /cerca e il termine di ricerca e io lo farò per te.",
     "sai usare google": "No, non posso usare Google, perché sono programmato per cercare solamente su DuckDuckGo. Posso cercare informazioni su Internet usando DuckDuckGo. Se hai bisogno di qualcosa in particolare dimmi /cerca e il termine di ricerca e io lo farò per te.",
     "Chi è Giuseppe Blando?": "Giuseppe Blando è un cittadino di Arcadia, attuale Presidente della Repubblica",
-    "cosa sono i cookie": "I cookie sono piccoli file di testo che i siti web o le applicazioni memorizzano sul tuo computer o sessione per ricordare informazioni sulle deine visite. Possono essere utilizzati per tenere traccia delle tuoi preferenze, autenticarti e migliorare l'esperienza utente.",
+    "cosa sono i cookie": "I cookie sono piccoli file di testo che i siti web o le applicazioni memorizzano sul tuo computer o sessione per ricordare informazioni sulle tue visite. Possono essere utilizzati per tenere traccia delle tue preferenze, autenticarti e migliorare l'esperienza utente.",
     "chi ha fondato lumenaria": "La Repubblica di Lumenaria è stata fondata da Filippo Zanetti il 4 febbraio del 2020.",
     "chi ha fondato arcadia": "La Repubblica di Arcadia è stata fondata da Andrea Lazarev l'11 dicembre del 2021.",
-    "chi ha fondato leonia": "Leonia è stata fondata da Carlo Cesare Orlando (all'epoca noto como Davide Leone) nel 2019.",
-    "qual è la forma peggiore di micronazionalismo": "La forma peggiore di micronazionalismo is l'idionazione. Si tratta di un'entità fondata da una singola persona che si autoproclama leader di uno Stato immaginario senza alcun seguito reale, interazione sociale autentica o vera produzione culturale, agendo unicamente per egocentrismo.",
+    "chi ha fondato leonia": "Leonia è stata fondata da Carlo Cesare Orlando (all'epoca noto come Davide Leone) nel 2019.",
+    "qual è la forma peggiore di micronazionalismo": "La forma peggiore di micronazionalismo è l'idionazione. Si tratta di un'entità fondata da una singola persona che si autoproclama leader di uno Stato immaginario senza alcun seguito reale, interazione sociale autentica o vera produzione culturale, agendo unicamente per egocentrismo.",
     "chi è davide sciortino": "Davide Sciortino (noto anche come Davide Sortino) è stato Presidente della Repubblica di Lumenaria. È menzionato ne La Storia di Lumenaria come figura che rimase al potere dopo un colpo di Stato, senza subire procedimenti penali."
 }
 
@@ -468,67 +837,7 @@ TRIGGER_PHRASES = {
     "/clear_memory": ["/clear_memory", "/cancella_memoria", "/reset_memory"]
 }
 
-def vary_response(text):
-    if not text:
-        return text
-    
-    synonyms = [
-        ("chatbot libero", "assistente virtuale open source"),
-        ("chatbot open source", "software libero e aperto"),
-        ("giovane micronazionalista", "micronazionalista italiano"),
-        ("esperimenti sociali", "esperimenti culturali e sociali"),
-        ("Inoltre, posso", "In aggiunta, sono in grado di"),
-        ("Ottima domanda!", "Che bella domanda!"),
-        ("un chatbot", "un assistente conversazionale"),
-        ("è stato creato da", "è un'opera di"),
-        ("puoi pubblicare su", "posso scrivere direttamente su")
-    ]
-    
-    modified_text = text
-    for word, replacement in synonyms:
-        if word in modified_text and random.random() < 0.6:
-            modified_text = modified_text.replace(word, replacement)
-            
-    intros = ["", "allora, ", "guarda, ", "in pratica ", "ti spiego: ", "guarda che "]
-    outros = ["", " spero ti vada bene!", " comunque se hai altre domande chiedi pure eh!", " fammi sapere se è tutto chiaro!", " spero ti sia d'aiuto! 🙌", " ciaoo!"]
-    
-    if len(modified_text) > 25 and "https://" not in modified_text:
-        if modified_text.endswith("."):
-            rand_val = random.random()
-            if rand_val < 0.4:
-                modified_text = modified_text[:-1] + ""
-            elif rand_val < 0.7:
-                modified_text = modified_text[:-1] + "!"
-            elif rand_val < 0.85:
-                modified_text = modified_text[:-1] + "..."
-                
-        intro = random.choice(intros) if random.random() < 0.5 else ""
-        outro = random.choice(outros) if random.random() < 0.5 else ""
-        
-        if intro:
-            if modified_text and modified_text[0].isupper():
-                modified_text = modified_text[0].lower() + modified_text[1:]
-                
-        modified_text = f"{intro}{modified_text}{outro}"
-        
-    return modified_text
-
-def get_predefined_response(text):
-    if not text:
-        return None
-    
-    text_lower = text.lower().strip()
-    clean_text = re.sub(r'[^\w\s]', '', text_lower).strip()
-    
-    for key, triggers in TRIGGER_PHRASES.items():
-        for trigger in triggers:
-            clean_trigger = re.sub(r'[^\w\s]', '', trigger.lower()).strip()
-            if clean_text == clean_trigger:
-                raw_response = RISPOSTE_PREDEFINITE.get(key)
-                return vary_response(raw_response)
-    
-    return None
-
+# ==================== CLASSE ALIAS RESOLVER ====================
 class AliasResolver:
     @staticmethod
     def get_real_name(name):
@@ -574,6 +883,7 @@ class AliasResolver:
                 text = re.sub(r'\b' + re.escape(alias) + r'\b', real_name, text)
         return text
 
+# ==================== CLASSE MESSAGEDB ====================
 class MessageDB:
     def __init__(self, db_path):
         self.conn = sqlite3.connect(str(db_path), check_same_thread=False)
@@ -606,11 +916,16 @@ class MessageDB:
                 updated_at REAL
             )
         """)
-        # Tabella persistente per i limiti delle immagini generate giornalmente
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS image_generations (
                 user_id INTEGER,
                 generated_at REAL
+            )
+        """)
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS free_requests (
+                user_id INTEGER,
+                timestamp REAL
             )
         """)
         
@@ -730,7 +1045,6 @@ class MessageDB:
         self.conn.execute("INSERT OR IGNORE INTO processed VALUES (?,?,?,?,?)", (update_id, chat_id, user_id, date, time.time()))
         self.conn.commit()
 
-    # ==================== GESTIONE DELLE UTENZE E LIMITI IMMAGINE ====================
     def get_user_tier(self, user_id):
         if user_id == DEVELOPER_USER_ID and DEVELOPER_USER_ID != 0:
             return "developer"
@@ -748,9 +1062,8 @@ class MessageDB:
     def check_image_limit(self, user_id):
         tier = self.get_user_tier(user_id)
         if tier == "developer":
-            return True, "developer", 0, 0 # Illimitati
+            return True, "developer", 0, 0
         
-        # Filtra le generazioni delle ultime 24 ore
         cutoff = time.time() - 86400
         cursor = self.conn.execute(
             "SELECT COUNT(*) FROM image_generations WHERE user_id = ? AND generated_at > ?",
@@ -772,6 +1085,35 @@ class MessageDB:
     def record_image_generation(self, user_id):
         self.conn.execute(
             "INSERT INTO image_generations (user_id, generated_at) VALUES (?, ?)",
+            (user_id, time.time())
+        )
+        self.conn.commit()
+
+    def check_rate_limit(self, user_id):
+        if user_id == DEVELOPER_USER_ID and DEVELOPER_USER_ID != 0:
+            return True, ""
+            
+        tier = self.get_user_tier(user_id)
+        if tier in ["pro", "plus", "developer"]:
+            return True, ""
+            
+        cutoff = time.time() - 14400
+        self.conn.execute("DELETE FROM free_requests WHERE timestamp < ?", (cutoff,))
+        self.conn.commit()
+        
+        cursor = self.conn.execute(
+            "SELECT COUNT(*) FROM free_requests WHERE user_id = ?", (user_id,)
+        )
+        count = cursor.fetchone()[0]
+        
+        if count >= 3:
+            return False, "⏳ **Limite richieste gratuite raggiunto!**\n\nHai superato il limite di sicurezza di **3 richieste ogni 4 ore** previsto per gli account gratuiti.\n\n💡 Per continuare ad utilizzare il bot senza limiti di tempo, effettua l'upgrade a **PLUS** (15 ARC), **PRO** (25 ARC) oppure acquista un bypass temporaneo con `/buy_bypass`!"
+            
+        return True, ""
+
+    def record_free_request(self, user_id):
+        self.conn.execute(
+            "INSERT INTO free_requests (user_id, timestamp) VALUES (?, ?)",
             (user_id, time.time())
         )
         self.conn.commit()
@@ -872,6 +1214,7 @@ class MessageDB:
         self.conn.execute("DELETE FROM processed WHERE date < ?", (int(time.time()) - 3600,))
         self.conn.execute("DELETE FROM conversation_memory WHERE timestamp < ?", (int(time.time()) - 604800,))
         self.conn.execute("DELETE FROM image_generations WHERE generated_at < ?", (time.time() - 86400,))
+        self.conn.execute("DELETE FROM free_requests WHERE timestamp < ?", (time.time() - 14400,))
         self.conn.commit()
     
     def close(self):
@@ -885,7 +1228,7 @@ class VideoRateLimiter:
     
     def can_process(self, user_id, db):
         if user_id == DEVELOPER_USER_ID and DEVELOPER_USER_ID != 0:
-            return True, ""
+            return True, "", 0
         with self.lock:
             can_gen, msg = db.can_generate_video(user_id)
             if not can_gen:
@@ -913,6 +1256,7 @@ BYPASS_PRICES = {
     "7d": {"name": "Bypass 7 giorni", "arc": 500, "hours": 168},
 }
 
+# ==================== CLASSI CES IMAGE, VIDEO, AI CLIENT ====================
 class CESImage:
     count = 0
     BANNED = ["nsfw", "porn", "nude", "gore", "blood"]
@@ -935,7 +1279,6 @@ class CESImagePlus:
     
     @classmethod
     def generate(cls, prompt):
-        """Genera un'immagine con FLUX (qualità superiore) - SENZA TIMEOUT"""
         if not prompt or len(prompt.strip()) < 2:
             return {"success": False, "error": "Prompt troppo corto"}
         
@@ -945,14 +1288,13 @@ class CESImagePlus:
             if word in normalized:
                 return {"success": False, "error": "Contenuto bloccato per motivi di sicurezza."}
         
-        # ===== TENTATIVO 1: DeepInfra FLUX.1-dev =====
+        # TENTATIVO 1: DeepInfra FLUX.1-dev
         english_prompt = cls._translate_to_english(prompt)
         print(f"🌐 [DeepInfra] Prompt tradotto: '{english_prompt}'")
         
         try:
             print(f"🎨 [DeepInfra] Generazione FLUX.1-dev per: {english_prompt[:80]}...")
             
-            # Utilizza requests SENZA TIMEOUT
             response = requests.post(
                 "https://api.deepinfra.com/v1/inference/black-forest-labs/FLUX.1-dev",
                 json={"prompt": f"masterpiece, best quality, highly detailed, 8k, photorealistic: {english_prompt}"},
@@ -993,11 +1335,9 @@ class CESImagePlus:
     
     @classmethod
     def _try_huggingface(cls, prompt):
-        """Tentativo con Hugging Face usando la patch DNS e la libreria requests per stabilità"""
         try:
             print(f"🎨 [HF-FLUX] Generazione per: {prompt[:80]}...")
             
-            # Utilizziamo un modello non-gated per evitare restrizioni di licenza account
             model_id = "black-forest-labs/FLUX.1-schnell"
             url = f"https://api-inference.huggingface.co/models/{HF_MODEL}"
             
@@ -1006,7 +1346,6 @@ class CESImagePlus:
             
             print(f"   📤 Invio richiesta a Hugging Face (senza timeout)...")
             
-            # Chiamata a Hugging Face usando requests (sfrutta la DNS patch globale)
             r = requests.post(
                 url,
                 json=payload,
@@ -1061,45 +1400,26 @@ class CESImagePlus:
     
     @staticmethod
     def _translate_to_english(text):
-        """Traduce un prompt in italiano in inglese usando Gemini o OpenRouter"""
-        try:
-            translation_prompt = f"Translate the following Italian text to English, keeping it natural and descriptive. Only output the translation, nothing else:\n\n{text}"
-            
-            result = AIClient.generate(translation_prompt, max_tok=200)
-            
-            if result and len(result) > 3:
-                translation = result.strip().strip('"').strip("'")
-                if len(translation) > 3:
-                    return translation
-            
-            # Fallback: traduzione di emergenza a dizionario
-            simple_map = {
-                "uomo": "man", "donna": "woman", "gatto": "cat", "cane": "dog",
-                "casa": "house", "paesaggio": "landscape", "natura": "nature",
-                "mare": "sea", "montagna": "mountain", "città": "city",
-                "albero": "tree", "fiore": "flower", "sole": "sun", "luna": "moon",
-                "stelle": "stars", "seduto": "sitting", "in piedi": "standing",
-                "cammina": "walking", "corre": "running", "sorride": "smiling",
-                "triste": "sad", "felice": "happy", "bello": "beautiful",
-                "grande": "big", "piccolo": "small", "sedia": "chair",
-                "tavolo": "table", "porta": "door", "finestra": "window",
-                "libro": "book", "telefono": "phone", "computer": "computer",
-                "caffè": "coffee", "vino": "wine", "pizza": "pizza",
-                "musica": "music", "arte": "art", "foto": "photo", "ritratto": "portrait"
-            }
-            
-            translated = text.lower()
-            for it, en in simple_map.items():
-                translated = translated.replace(it, en)
-            
-            if translated != text.lower():
-                return translated
-            
-            return text
-            
-        except Exception as e:
-            print(f"⚠️ Errore traduzione: {e}")
-            return text
+        simple_map = {
+            "uomo": "man", "donna": "woman", "gatto": "cat", "cane": "dog",
+            "casa": "house", "paesaggio": "landscape", "natura": "nature",
+            "mare": "sea", "montagna": "mountain", "città": "city",
+            "albero": "tree", "fiore": "flower", "sole": "sun", "luna": "moon",
+            "stelle": "stars", "seduto": "sitting", "in piedi": "standing",
+            "cammina": "walking", "corre": "running", "sorride": "smiling",
+            "triste": "sad", "felice": "happy", "bello": "beautiful",
+            "grande": "big", "piccolo": "small", "sedia": "chair",
+            "tavolo": "table", "porta": "door", "finestra": "window",
+            "libro": "book", "telefono": "phone", "computer": "computer",
+            "caffè": "coffee", "vino": "wine", "pizza": "pizza",
+            "musica": "music", "arte": "art", "foto": "photo", "ritratto": "portrait"
+        }
+        
+        translated = text.lower()
+        for it, en in simple_map.items():
+            translated = translated.replace(it, en)
+        
+        return translated if translated != text.lower() else text
 
 class CESVideo:
     HEADERS = {
@@ -1317,7 +1637,6 @@ class AIClient:
     
     @classmethod
     def generate(cls, prompt, max_tok=300):
-        # Primo Guardrail locale interno per prevenire qualsiasi invocazione all'esterno
         is_sensitive, category = PrivacyGuard.check_sensitive_data(prompt)
         if is_sensitive:
             print(f"🔒 [AIClient] Generazione interrotta localmente per presenza di dati sensibili ({category}).")
@@ -1575,18 +1894,17 @@ class KnowledgeBase:
             try:
                 with open(fp, 'r', encoding='utf-8') as f:
                     self.files_content[fp.name] = f.read()
-                    print(f"📚 Caricatu: {fp.name} ({len(self.files_content[fp.name])} caratteri)")
+                    print(f"📚 Caricato: {fp.name} ({len(self.files_content[fp.name])} caratteri)")
             except Exception as e:
-                print(f"⚠️ Errore caricandu {fp.name}: {e}")
+                print(f"⚠️ Errore caricamento {fp.name}: {e}")
                 
     def reload(self):
-        """Forza u svitamentu di a cache è ricarica i schedarii aghjurnati da u discu"""
         self.files_content = {}
         self.chunks = []
         self.idf = {}
         self.load_all_files()
         self.index_chunks()
-        print("🔄 [KnowledgeBase] Aghjurnamentu di l'indici semanticu cumpletatu!")
+        print("🔄 [KnowledgeBase] Aggiornamento dell'indice semantico completato!")
 
     @staticmethod
     def stem_word(word):
@@ -1630,7 +1948,6 @@ class KnowledgeBase:
         return words if words else cleaned.split()
 
     def index_chunks(self):
-        """Divide i testi in blocchi equilibrati è indicizza i termini"""
         self.chunks = []
         doc_counts = defaultdict(int)
         
@@ -1689,7 +2006,6 @@ class KnowledgeBase:
         })
 
     def search(self, query, max_results=5):
-        """Esegue una ricerca semantica ottimizzata con boost sui file nominati esplicitamente nella query"""
         query_words = re.findall(r'\w+', query.lower())
         query_stems = []
         for w in query_words:
@@ -1722,7 +2038,6 @@ class KnowledgeBase:
             if chunk['word_count'] > 0:
                 score /= (0.8 + 0.2 * (chunk['word_count'] / 200.0))
                 
-            # BOOST SEMANTICU
             file_lower = chunk['file'].lower()
             for qw in query_words:
                 if len(qw) > 3 and qw in file_lower:
@@ -1757,9 +2072,8 @@ class KnowledgeBase:
 class LeoniaPlusUpdater:
     @staticmethod
     def scrape_channel():
-        """Estrae i post pubblici di @leoniaplusgiornale a costo zero ed in totale sicurezza"""
         try:
-            print("📰 [Leonia+] Avviu di a sincronizazione cù @leoniaplusgiornale...")
+            print("📰 [Leonia+] Avvio della sincronizzazione con @leoniaplusgiornale...")
             url = "https://t.me/s/leoniaplusgiornale"
             headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
@@ -1767,14 +2081,14 @@ class LeoniaPlusUpdater:
             
             r = REQUESTS_SESSION.get(url, headers=headers, timeout=25)
             if r.status_code != 200:
-                print(f"⚠️ [Leonia+] Impussibile scaricà a pagina. Status HTTP: {r.status_code}")
+                print(f"⚠️ [Leonia+] Impossibile scaricare la pagina. Status HTTP: {r.status_code}")
                 return False
             
             html_content = r.text
             posts_raw = re.findall(r'<div class="tgme_widget_message_text[^>]*>(.*?)</div>', html_content, re.DOTALL)
             
             if not posts_raw:
-                print("⚠️ [Leonia+] Nisun post trovu o classe HTML cambiata da u servitore di Telegram.")
+                print("⚠️ [Leonia+] Nessun post trovato o classe HTML cambiata dal server di Telegram.")
                 return False
             
             cleaned_posts = []
@@ -1791,23 +2105,23 @@ class LeoniaPlusUpdater:
                 
                 with open(output_path, "w", encoding="utf-8") as f:
                     f.write("==================================================\n")
-                    f.write("📰 ARCHIVIU ARTICULI È NUTIZIE DI LEONIA+ (@leoniaplusgiornale)\n")
-                    f.write(f"Sincronizazione automatica eseguita u: {datetime.now().strftime('%d/%m/%Y %H:%M')}\n")
+                    f.write("📰 ARCHIVIO ARTICOLI E NOTIZIE DI LEONIA+ (@leoniaplusgiornale)\n")
+                    f.write(f"Sincronizzazione automatica eseguita il: {datetime.now().strftime('%d/%m/%Y %H:%M')}\n")
                     f.write("==================================================\n\n")
                     
                     for i, post_content in enumerate(reversed(cleaned_posts), 1):
-                        f.write(f"--- NUTIZIA #{i} ---\n")
+                        f.write(f"--- NOTIZIA #{i} ---\n")
                         f.write(f"{post_content}\n")
                         f.write("-" * 40 + "\n\n")
                 
-                print(f"✅ [Leonia+] Sincronizazione riuscita! Salvati {len(cleaned_posts)} post in {output_path.name}")
+                print(f"✅ [Leonia+] Sincronizzazione riuscita! Salvati {len(cleaned_posts)} post in {output_path.name}")
                 return True
             else:
-                print("⚠️ [Leonia+] Nisun post idoneu estrettu.")
+                print("⚠️ [Leonia+] Nessun post idoneo estratto.")
                 return False
                 
         except Exception as e:
-            print(f"❌ [Leonia+] Errore imprevistu durante a sincronizazione: {e}")
+            print(f"❌ [Leonia+] Errore imprevisto durante la sincronizzazione: {e}")
             return False
 
 # ==================== STRUMENTO DI PUBBLICAZIONE SU TELEGRAPH (ANONIMO) ====================
@@ -1817,7 +2131,6 @@ class TelegraphPublisher:
 
     @classmethod
     def get_token(cls):
-        """Recupera il token di accesso salvato o ne crea uno anonimo se non presente"""
         with cls._lock:
             if cls._token:
                 return cls._token
@@ -1831,7 +2144,7 @@ class TelegraphPublisher:
                     cls._token = row[0]
                     return cls._token
             except Exception as e:
-                print(f"⚠️ [Telegraph DB] Impussibile ricuperà u token: {e}")
+                print(f"⚠️ [Telegraph DB] Impossibile recuperare il token: {e}")
             finally:
                 conn.close()
             
@@ -1854,16 +2167,15 @@ class TelegraphPublisher:
                             conn.commit()
                             conn.close()
                             cls._token = token
-                            print("✅ [Telegraph] Account creatu è memorizatu currettamente!")
+                            print("✅ [Telegraph] Account creato e memorizzato correttamente!")
                             return token
             except Exception as e:
-                print(f"❌ [Telegraph] Errore criticu durante a creazione di l'account: {e}")
+                print(f"❌ [Telegraph] Errore critico durante la creazione dell'account: {e}")
             
             return None
 
     @classmethod
     def parse_inline_text(cls, text: str) -> List[Any]:
-        """Tokenizza e converte inline grassetti, corsivi e link in nodi Telegraph"""
         parts = []
         pattern = re.compile(r'(\*\*.*?\*\*|\[.*?\]\(.*?\))')
         tokens = pattern.split(text)
@@ -1885,7 +2197,6 @@ class TelegraphPublisher:
 
     @classmethod
     def markdown_to_nodes(cls, md_text: str) -> List[Dict]:
-        """Converte una stringa Markdown standard in nodi JSON validi per Telegraph"""
         nodes = []
         lines = md_text.split('\n')
         for line in lines:
@@ -1915,10 +2226,9 @@ class TelegraphPublisher:
 
     @classmethod
     def publish(cls, title: str, md_content: str) -> Optional[str]:
-        """Crea una nuova pagina su Telegraph e restituisce l'URL di visualizzazione"""
         token = cls.get_token()
         if not token:
-            print("❌ [Telegraph] Impussibile pubblicà: token micca dispunibile.")
+            print("❌ [Telegraph] Impossibile pubblicare: token non disponibile.")
             return None
         
         try:
@@ -1941,11 +2251,11 @@ class TelegraphPublisher:
                     print(f"✅ [Telegraph] Pubblicazione riuscita: {telegraph_url}")
                     return telegraph_url
                 else:
-                    print(f"❌ [Telegraph] Errore restituitu da l'API: {res.get('error')}")
+                    print(f"❌ [Telegraph] Errore restituito dall'API: {res.get('error')}")
             else:
                 print(f"❌ [Telegraph] Connessione fallita. Codice HTTP: {r.status_code}")
         except Exception as e:
-            print(f"⚠️ [Telegraph] Errore imprevistu durante a pubblicazione: {e}")
+            print(f"⚠️ [Telegraph] Errore imprevisto durante la pubblicazione: {e}")
         
         return None
 
@@ -2501,7 +2811,7 @@ REGOLE FONDAMENTALI:
 - Usa markdown per la formattazione
 - Cita le fonti nel testo con [1], [2], ecc.
 - Lunghezza massima: {max_words} parole
-- NON includere il ragiunamento, solo il report finale
+- NON includere il ragionamento, solo il report finale
 
 FORMATO RACCOMANDATO:
 # Titolo del Report
@@ -2565,7 +2875,7 @@ Questa è un'analisi approfondita basata su {len(sources)} fonti disponibili.
 Le informazioni raccolte forniscono una visione complessiva dell'argomento.
 
 ## Bibliografia
-{chr(10).join([f"- {s.get('title', 'Fonte')}: {s.get('url', 'N/A')}" for s in sources[:5]])}
+{chr(10).join([f"- {s.get('title', 'Fonte')}: {s.get('url', 'N/A')}" for f in sources[:5]])}
 """
 
 class DeepResearchEngine:
@@ -2580,7 +2890,7 @@ class DeepResearchEngine:
         self.running = True
         self.worker_thread = threading.Thread(target=self._worker_loop, daemon=True)
         self.worker_thread.start()
-        print("🧠 Motore Deep Research avviatu!")
+        print("🧠 Motore Deep Research avviato!")
 
     def stop(self):
         self.running = False
@@ -2689,27 +2999,27 @@ class DeepResearchEngine:
             DEEP_DB.mark_done(job.job_id, report, pdf_path=telegraph_url, sources_count=len(all_sources))
             DEEP_DB.update_stats(job.user_id, len(all_sources))
 
-            print(f"✅ [Deep Research] Job {job.job_id} completatu cù {len(all_sources)} fonti")
+            print(f"✅ [Deep Research] Job {job.job_id} completato con {len(all_sources)} fonti")
 
             if BOT_INSTANCE:
                 if telegraph_url:
-                    BOT_INSTANCE.send(job.chat_id, f"📊 **Rapportu Deep Research cumpletatu!**\n\n"
+                    BOT_INSTANCE.send(job.chat_id, f"📊 **Report Deep Research completato!**\n\n"
                                                    f"🆔 `{job.job_id}`\n"
                                                    f"📝 **Richiesta:** {job.prompt}\n"
-                                                   f"📚 **Fonti analizate:** {job.sources_count}\n\n"
-                                                   f"📖 **Leghjite u rapportu sanu direttamente nantu à Telegraph:**\n"
+                                                   f"📚 **Fonti analizzate:** {job.sources_count}\n\n"
+                                                   f"📖 **Leggi il report completo direttamente su Telegraph:**\n"
                                                    f"🔗 {telegraph_url}")
                 else:
-                    BOT_INSTANCE.send(job.chat_id, f"📊 **Rapportu Deep Research cumpletatu!**\n\n"
+                    BOT_INSTANCE.send(job.chat_id, f"📊 **Report Deep Research completato!**\n\n"
                                                    f"🆔 `{job.job_id}`\n"
-                                                   f"Aduprate `/deep_status {job.job_id}` per leghjelu.")
+                                                   f"Usa `/deep_status {job.job_id}` per leggerlo.")
 
         except Exception as e:
             error_msg = str(e)
-            print(f"❌ [Deep Research] Job {job.job_id} fallitu: {error_msg}")
+            print(f"❌ [Deep Research] Job {job.job_id} fallito: {error_msg}")
             DEEP_DB.mark_failed(job.job_id, error_msg)
             if BOT_INSTANCE:
-                BOT_INSTANCE.send(job.chat_id, f"❌ **Job Deep Research Fallitu!**\n🆔 `{job.job_id}`\nErrore: {error_msg}")
+                BOT_INSTANCE.send(job.chat_id, f"❌ **Job Deep Research Fallito!**\n🆔 `{job.job_id}`\nErrore: {error_msg}")
 
     @staticmethod
     def _finalize_report(draft: str, fact_check: Dict, sources: List[Dict], plan: Dict) -> str:
@@ -2763,7 +3073,7 @@ class DeepResearchEngine:
 
 ## ⚖️ Note Metodologiche
 - Questo report è stato generato automaticamente da ArcadiaAI Deep Research
-- Le informazioni sono state raccolte da fonti multiple e verificate incrociatamente
+- Le informazioni sono state raccolze da fonti multiple e verificate incrociatamente
 - Per approfondimenti, consultare le fonti originali elencate in bibliografia
 - Data generazione: {datetime.now().strftime('%d/%m/%Y %H:%M')}
 
@@ -2780,15 +3090,15 @@ class DeepResearchCommands:
     def handle_deep_command(bot, chat_id, user_id, args):
         if not args:
             bot.send(chat_id, "🧠 **Deep Research ArcadiaAI Pro**\n\n"
-                "Crea rapportu di ricerca prufonda cù fonti verificate.\n\n"
-                "**Piani dispunibili:**\n"
-                "• `/deep free [dumanda]` - 8 fonti, sin'à 2500 parolle\n"
-                "• `/deep plus [dumanda]` - 25 fonti, sin'à 6000 parolle (25 ARC)\n"
-                "• `/deep pro [dumanda]` - 80 fonti, sin'à 20000 parolle (50 ARC)\n\n"
-                "**Esempiu:** `/deep pro A storia di a Repubblica di Lumenaria`\n\n"
-                "**Altri cumandi:**\n"
-                "/deep_status [id] - Statu di un job\n"
-                "/deep_history - Storicu di i vostri job\n"
+                "Crea report di ricerca approfondita con fonti verificate.\n\n"
+                "**Piani disponibili:**\n"
+                "• `/deep free [domanda]` - 8 fonti, fino a 2500 parole\n"
+                "• `/deep plus [domanda]` - 25 fonti, fino a 6000 parole (15 ARC)\n"
+                "• `/deep pro [domanda]` - 80 fonti, fino a 20000 parole (25 ARC)\n\n"
+                "**Esempio:** `/deep pro La storia della Repubblica di Lumenaria`\n\n"
+                "**Altri comandi:**\n"
+                "/deep_status [id] - Stato di un job\n"
+                "/deep_history - Storico dei tuoi job\n"
                 "/deep_cancel [id] - Cancella un job")
             return
 
@@ -2801,7 +3111,7 @@ class DeepResearchCommands:
         prompt = parts[1].strip()
 
         if plan not in ["free", "plus", "pro"]:
-            bot.send(chat_id, "⚠️ Pianu micca validu! Aduprate: free, plus o pro")
+            bot.send(chat_id, "⚠️ Piano non valido! Usa: free, plus o pro")
             return
 
         if user_id != DEVELOPER_USER_ID:
@@ -2809,7 +3119,7 @@ class DeepResearchCommands:
             if not bypass:
                 active = [j for j in DEEP_DB.get_user_jobs(user_id) if j.status in ['queued', 'planning', 'searching', 'synthesizing', 'factchecking']]
                 if len(active) >= 2:
-                    bot.send(chat_id, f"⏳ Avete digà {len(active)} job in corsu. Attendite o aduprate `/deep_cancel`.")
+                    bot.send(chat_id, f"⏳ Hai già {len(active)} job in corso. Attendi o usa `/deep_cancel`.")
                     return
 
         job_id = f"deep_{user_id}_{int(time.time())}_{hashlib.md5(prompt.encode()).hexdigest()[:6]}"
@@ -2825,12 +3135,12 @@ class DeepResearchCommands:
 
         deep_engine.submit_job(job)
 
-        bot.send(chat_id, f"🧠 **Deep Research avviatu!**\n\n"
-            f"📋 **Pianu:** {plan.upper()}\n"
-            f"📝 **Dumanda:** {prompt[:100]}{'...' if len(prompt) > 100 else ''}\n"
+        bot.send(chat_id, f"🧠 **Deep Research avviato!**\n\n"
+            f"📋 **Piano:** {plan.upper()}\n"
+            f"📝 **Domanda:** {prompt[:100]}{'...' if len(prompt) > 100 else ''}\n"
             f"🆔 **ID Job:** `{job_id}`\n\n"
-            f"⏳ Tempu stimatu: { '2-4 minuti' if plan == 'free' else '4-8 minuti' if plan == 'plus' else '8-15 minuti' }\n\n"
-            f"Aduprate `/deep_status {job_id}` per cuntrullà u prugressu.")
+            f"⏳ Tempo stimato: { '2-4 minuti' if plan == 'free' else '4-8 minuti' if plan == 'plus' else '8-15 minuti' }\n\n"
+            f"Usa `/deep_status {job_id}` per controllare il progresso.")
 
         return job_id
 
@@ -2841,10 +3151,10 @@ class DeepResearchCommands:
         if not job_id:
             jobs = DEEP_DB.get_user_jobs(user_id, limit=5)
             if not jobs:
-                bot.send(chat_id, "📭 Ùn avete micca fattu alcuna ricerca Deep Research.")
+                bot.send(chat_id, "📭 Non hai ancora effettuato alcuna ricerca Deep Research.")
                 return
 
-            response = "📊 **I vostri ultimi job:**\n\n"
+            response = "📊 **I tuoi ultimi job:**\n\n"
             for j in jobs[:5]:
                 status_emoji = {
                     "queued": "⏳", "planning": "🧠", "searching": "🔍",
@@ -2854,8 +3164,8 @@ class DeepResearchCommands:
 
                 response += f"{status_emoji} `{j.job_id}`\n"
                 response += f"   📝 {j.prompt[:60]}{'...' if len(j.prompt) > 60 else ''}\n"
-                response += f"   📊 Prugressu: {j.progress}%\n"
-                response += f"   📋 Pianu: {j.plan.upper()}\n"
+                response += f"   📊 Progresso: {j.progress}%\n"
+                response += f"   📋 Piano: {j.plan.upper()}\n"
                 response += f"   🕐 {datetime.fromtimestamp(j.created_at).strftime('%d/%m %H:%M')}\n\n"
 
             bot.send(chat_id, response)
@@ -2864,70 +3174,70 @@ class DeepResearchCommands:
         job = DEEP_DB.get_job(job_id)
 
         if not job:
-            bot.send(chat_id, f"❌ Job `{job_id}` micca trovu.")
+            bot.send(chat_id, f"❌ Job `{job_id}` non trovato.")
             return
 
         if job.user_id != user_id and user_id != DEVELOPER_USER_ID:
-            bot.send(chat_id, "❌ Ùn avete micca accessu à stu job.")
+            bot.send(chat_id, "❌ Non hai accesso a questo job.")
             return
 
         if job.status == "done":
             if job.pdf_path and (job.pdf_path.startswith("http://") or job.pdf_path.startswith("https://")):
-                bot.send(chat_id, f"📊 **Rapportu Deep Research cumpletatu!**\n\n"
+                bot.send(chat_id, f"📊 **Report Deep Research completato!**\n\n"
                                   f"🆔 `{job.job_id}`\n"
                                   f"📝 **Richiesta:** {job.prompt}\n"
-                                  f"📚 **Fonti analizate:** {job.sources_count}\n\n"
-                                  f"📖 **Leghjite u rapportu sanu direttamente nantu à Telegraph:**\n"
+                                  f"📚 **Fonti analizzate:** {job.sources_count}\n\n"
+                                  f"📖 **Leggi il report completo direttamente su Telegraph:**\n"
                                   f"🔗 {job.pdf_path}")
             else:
                 if job.report and len(job.report) > 4000:
                     parts = [job.report[i:i+4000] for i in range(0, len(job.report), 4000)]
-                    bot.send(chat_id, f"📊 **Rapportu Deep Research cumpletatu!**\n\n🆔 `{job.job_id}`\n📝 {job.prompt}\n📚 Fonti: {job.sources_count}\n\n")
+                    bot.send(chat_id, f"📊 **Report Deep Research completato!**\n\n🆔 `{job.job_id}`\n📝 {job.prompt}\n📚 Fonti: {job.sources_count}\n\n")
                     for part in parts:
                         bot.send(chat_id, part)
-                    bot.send(chat_id, f"\n📎 Rapportu generatu u {datetime.fromtimestamp(job.finished_at).strftime('%d/%m/%Y %H:%M')}")
+                    bot.send(chat_id, f"\n📎 Report generato il {datetime.fromtimestamp(job.finished_at).strftime('%d/%m/%Y %H:%M')}")
                 else:
-                    bot.send(chat_id, f"📊 **Rapportu Deep Research:**\n\n{job.report}\n\n📚 Fonti: {job.sources_count}")
+                    bot.send(chat_id, f"📊 **Report Deep Research:**\n\n{job.report}\n\n📚 Fonti: {job.sources_count}")
             return
 
         if job.status == "failed":
-            bot.send(chat_id, f"❌ **Job fallitu:**\n🆔 `{job.job_id}`\nErrore: {job.error}")
+            bot.send(chat_id, f"❌ **Job fallito:**\n🆔 `{job.job_id}`\nErrore: {job.error}")
             return
 
         status_messages = {
             "queued": "⏳ In coda...",
-            "planning": "🧠 Creazione di u pianu di ricerca...",
-            "searching": "🔍 Ricerca di e fonti...",
-            "synthesizing": "✍️ Sintesi di u rapportu...",
-            "factchecking": "✅ Verifica di i fatti..."
+            "planning": "🧠 Creazione del piano di ricerca...",
+            "searching": "🔍 Ricerca delle fonti...",
+            "synthesizing": "✍️ Sintesi del rapporto...",
+            "factchecking": "✅ Verifica dei fatti..."
         }
 
         progress_bar = "█" * (job.progress // 5) + "░" * (20 - job.progress // 5)
 
-        bot.send(chat_id, f"📊 **Statu Deep Research**\n\n"
+        bot.send(chat_id, f"📊 **Stato Deep Research**\n\n"
             f"🆔 `{job.job_id}`\n"
             f"📝 {job.prompt[:100]}{'...' if len(job.prompt) > 100 else ''}\n"
-            f"📋 Pianu: {job.plan.upper()}\n"
-            f"📊 Prugressu: {job.progress}%\n"
+            f"📋 Piano: {job.plan.upper()}\n"
+            f"📊 Progresso: {job.progress}%\n"
             f"`[{progress_bar}]`\n"
-            f"🔄 {status_messages.get(job.status, 'Elaborazione in corsu...')}\n"
-            f"📚 Fonti truvate: {job.sources_count}")
+            f"🔄 {status_messages.get(job.status, 'Elaborazione in corso...')}\n"
+            f"📚 Fonti trovate: {job.sources_count}")
 
     @staticmethod
     def handle_deep_history(bot, chat_id, user_id, args):
         jobs = DEEP_DB.get_user_jobs(user_id, limit=20)
 
         if not jobs:
-            bot.send(chat_id, "📭 Ùn avete micca fattu alcuna ricerca Deep Research.")
+            bot.send(chat_id, "📭 Non hai ancora effettuato alcuna ricerca Deep Research.")
             return
 
         completed = len([j for j in jobs if j.status == "done"])
         total_sources = sum(j.sources_count for j in jobs if j.status == "done")
 
-        response = f"📊 **Storicu Deep Research**\n\n"
+        response = f"📊 **Storico Deep Research**\n\n"
         response += f"📋 Totale ricerche: {len(jobs)}\n"
-        response += f"✅ Cumpletate: {completed}\n"
-        response += f"📚 Fonti totale: {total_sources}\n\n"
+        response += f"✅ Completate: {completed}\n"
+        response += f"📚 Fonti totali: {total_sources}\n\n"
         response += "---\n\n"
 
         for j in jobs[:10]:
@@ -2944,13 +3254,13 @@ class DeepResearchCommands:
         if not job_id:
             active = [j for j in DEEP_DB.get_user_jobs(user_id) if j.status in ['queued', 'planning', 'searching', 'synthesizing', 'factchecking']]
             if not active:
-                bot.send(chat_id, "✅ Ùn avete micca job in corsu.")
+                bot.send(chat_id, "✅ Non hai job in corso.")
                 return
 
-            response = "📋 **Job in corsu:**\n\n"
+            response = "📋 **Job in corso:**\n\n"
             for j in active:
                 response += f"• `{j.job_id}` - {j.prompt[:40]}... ({j.progress}%)\n"
-            response += "\nAduprate `/deep_cancel [id]` per cancellà ne unu."
+            response += "\nUsa `/deep_cancel [id]` per cancellarne uno."
 
             bot.send(chat_id, response)
             return
@@ -2958,22 +3268,84 @@ class DeepResearchCommands:
         job = DEEP_DB.get_job(job_id)
 
         if not job:
-            bot.send(chat_id, f"❌ Job `{job_id}` micca trovu.")
+            bot.send(chat_id, f"❌ Job `{job_id}` non trovato.")
             return
 
         if job.user_id != user_id and user_id != DEVELOPER_USER_ID:
-            bot.send(chat_id, "❌ Ùn avete micca accessu à stu job.")
+            bot.send(chat_id, "❌ Non hai accesso a questo job.")
             return
 
         if job.status in ["done", "failed", "cancelled"]:
-            bot.send(chat_id, f"⚠️ U job `{job_id}` hè digà statu cumpletatu o cancellatu.")
+            bot.send(chat_id, f"⚠️ Il job `{job_id}` è già stato completato o cancellato.")
             return
 
         job.status = "cancelled"
-        job.error = "Cancellatu da l'utilizatore"
+        job.error = "Cancellato dall'utente"
         DEEP_DB.save_job(job)
 
-        bot.send(chat_id, f"🚫 Job `{job_id}` cancellatu cù successu.")
+        bot.send(chat_id, f"🚫 Job `{job_id}` cancellato con successo.")
+
+# ==================== FUNZIONI DI VARIAZIONE RISPOSTE ====================
+def vary_response(text):
+    if not text:
+        return text
+    
+    synonyms = [
+        ("chatbot libero", "assistente virtuale open source"),
+        ("chatbot open source", "software libero e aperto"),
+        ("giovane micronazionalista", "micronazionalista italiano"),
+        ("esperimenti sociali", "esperimenti culturali e sociali"),
+        ("Inoltre, posso", "In aggiunta, sono in grado di"),
+        ("Ottima domanda!", "Che bella domanda!"),
+        ("un chatbot", "un assistente conversazionale"),
+        ("è stato creato da", "è un'opera di"),
+        ("puoi pubblicare su", "posso scrivere direttamente su")
+    ]
+    
+    modified_text = text
+    for word, replacement in synonyms:
+        if word in modified_text and random.random() < 0.6:
+            modified_text = modified_text.replace(word, replacement)
+            
+    intros = ["", "allora, ", "guarda, ", "in pratica ", "ti spiego: ", "guarda che "]
+    outros = ["", " spero ti vada bene!", " comunque se hai altre domande chiedi pure eh!", " fammi sapere se è tutto chiaro!", " spero ti sia d'aiuto! 🙌", " ciaoo!"]
+    
+    if len(modified_text) > 25 and "https://" not in modified_text:
+        if modified_text.endswith("."):
+            rand_val = random.random()
+            if rand_val < 0.4:
+                modified_text = modified_text[:-1] + ""
+            elif rand_val < 0.7:
+                modified_text = modified_text[:-1] + "!"
+            elif rand_val < 0.85:
+                modified_text = modified_text[:-1] + "..."
+                
+        intro = random.choice(intros) if random.random() < 0.5 else ""
+        outro = random.choice(outros) if random.random() < 0.5 else ""
+        
+        if intro:
+            if modified_text and modified_text[0].isupper():
+                modified_text = modified_text[0].lower() + modified_text[1:]
+                
+        modified_text = f"{intro}{modified_text}{outro}"
+        
+    return modified_text
+
+def get_predefined_response(text):
+    if not text:
+        return None
+    
+    text_lower = text.lower().strip()
+    clean_text = re.sub(r'[^\w\s]', '', text_lower).strip()
+    
+    for key, triggers in TRIGGER_PHRASES.items():
+        for trigger in triggers:
+            clean_trigger = re.sub(r'[^\w\s]', '', trigger.lower()).strip()
+            if clean_text == clean_trigger:
+                raw_response = RISPOSTE_PREDEFINITE.get(key)
+                return vary_response(raw_response)
+    
+    return None
 
 # ==================== ARCADIA BOT ====================
 class ArcadiaBot:
@@ -2981,6 +3353,7 @@ class ArcadiaBot:
         self.token = TELEGRAM_BOT_TOKEN
         self.base_url = f"https://api.telegram.org/bot{self.token}"
         self.db = MessageDB(SCRIPT_DIR / "processed.db")
+        self.cache = ResponseCache(CACHE_DB_PATH)
         self.loader = FileLoader(DATA_FOLDER)
         self.knowledge = KnowledgeBase(DATA_FOLDER)
         self.deep_db = DeepResearchDB(SCRIPT_DIR / "deep_research.db")
@@ -3012,16 +3385,16 @@ class ArcadiaBot:
         if r.get("ok"):
             self.username = r['result'].get('username', '')
             self.id = r['result'].get('id', 0)
-            print(f"ℹ️ Info bot caricate à l'avviu: @{self.username} (ID: {self.id})")
+            print(f"ℹ️ Info bot caricate all'avvio: @{self.username} (ID: {self.id})")
         else:
-            print("⚠️ Impussibile caricà l'info di u bot durante l'init!")
+            print("⚠️ Impossibile caricare le info del bot durante l'init!")
     
     def test(self):
         r = self.api("getMe")
         if r.get("ok"):
             self.username = r['result'].get('username', '')
             self.id = r['result'].get('id', 0)
-            print(f"✅ Bot attivu: @{self.username} (ID: {self.id})")
+            print(f"✅ Bot attivo: @{self.username} (ID: {self.id})")
             return True
         return False
     
@@ -3058,7 +3431,7 @@ class ArcadiaBot:
                 r = REQUESTS_SESSION.post(url, data=data, files=files, timeout=40)
                 return r.json()
         except Exception as e:
-            print(f"⚠️ Errore upload foto lucale: {e}")
+            print(f"⚠️ Errore upload foto locale: {e}")
             return {"ok": False}
     
     def send_video_file(self, chat_id, video_path, caption=None):
@@ -3098,12 +3471,27 @@ class ArcadiaBot:
         except Exception as e:
             print(f"⚠️ Upload: {e}")
             return {"ok": False}
+
+    def send_audio_file(self, chat_id, audio_path, caption=None):
+        url = f"{self.base_url}/sendAudio"
+        self.api("sendChatAction", {"chat_id": chat_id, "action": "upload_voice"})
+        try:
+            with open(audio_path, 'rb') as f:
+                files = {'audio': f}
+                data = {'chat_id': chat_id}
+                if caption:
+                    data['caption'] = caption[:1024]
+                r = REQUESTS_SESSION.post(url, data=data, files=files, timeout=60)
+                return r.json()
+        except Exception as e:
+            print(f"⚠️ Errore nell'upload del file audio locale: {e}")
+            return {"ok": False}
     
     def handle_image(self, chat_id, file_id, caption, user_id):
         try:
             file_info = self.api("getFile", {"file_id": file_id})
             if not file_info.get("ok"):
-                self.send(chat_id, "❌ Impussibile ottene u file.")
+                self.send(chat_id, "❌ Impossibile ottenere il file.")
                 return
 
             file_path = file_info["result"]["file_path"]
@@ -3117,7 +3505,7 @@ class ArcadiaBot:
                     f.write(resp.read())
 
             if not img_temp.exists() or img_temp.stat().st_size < 100:
-                self.send(chat_id, "❌ U file di l'imagine micca scaricatu currettamente.")
+                self.send(chat_id, "❌ Il file dell'immagine non è stato scaricato correttamente.")
                 img_temp.unlink(missing_ok=True)
                 return
 
@@ -3126,9 +3514,9 @@ class ArcadiaBot:
                     viewer = CESImageViewer()
                     raw_description = viewer.analizza(str(img_temp))
                 except Exception as e:
-                    raw_description = f"❌ Errore durante l'analisi di l'imagine: {str(e)}"
+                    raw_description = f"❌ Errore durante l'analisi dell'immagine: {str(e)}"
             else:
-                raw_description = "❌ CES Image Viewer micca dispunibile."
+                raw_description = "❌ CES Image Viewer non disponibile."
 
             if raw_description.startswith("=== CES IMAGE VIEWER"):
                 if caption and len(caption) > 0:
@@ -3154,9 +3542,9 @@ class ArcadiaBot:
             img_temp.unlink(missing_ok=True)
 
         except urllib.error.URLError as e:
-            self.send(chat_id, f"❌ Errore di rete durante u download di l'imagine: {str(e)}")
+            self.send(chat_id, f"❌ Errore di rete durante il download dell'immagine: {str(e)}")
         except Exception as e:
-            self.send(chat_id, f"❌ Errore durante l'analisi di l'imagine: {str(e)}")
+            self.send(chat_id, f"❌ Errore durante l'analisi dell'immagine: {str(e)}")
             print(f"❌ Errore in handle_image: {e}")
             import traceback
             traceback.print_exc()
@@ -3209,10 +3597,10 @@ class ArcadiaBot:
     
     def handle_ces360(self, chat_id, prompt):
         if not HF_TOKEN:
-            self.send(chat_id, "❌ **Token Hugging Face micca cunfiguratu!**\n\n"
-                "Per utilizà /ces-360 deve cunfigurà u token in u schedariu `.env`:\n"
+            self.send(chat_id, "❌ **Token Hugging Face non configurato!**\n\n"
+                "Per utilizzare /ces-360 devi configurare il token nel file `.env`:\n"
                 "`HUGGINGFACE_TOKEN=tuo_token_qui`\n\n"
-                "Pò ottene un token gratuitu nantu à https://huggingface.co/settings/tokens")
+                "Puoi ottenere un token gratuito su https://huggingface.co/settings/tokens")
             return
         
         if not prompt:
@@ -3296,12 +3684,12 @@ class ArcadiaBot:
                     "Il tuo token HUGGINGFACE_TOKEN nel file `.env` non è corretto o non ha i permessi di lettura per questo modello.")
                 print(f"   ❌ Token non valido (Stato: {e.code}).")
             else:
-                self.send(chat_id, f"❌ Errore HTTP {e.code} virus la richiesta.")
+                self.send(chat_id, f"❌ Errore HTTP {e.code} durante la richiesta.")
                 print(f"   ❌ Errore HTTP: {e}")
                 
         except urllib.error.URLError as e:
             if "getaddrinfo" in str(e):
-                self.send(chat_id, "🌐 **Errore DNS - Impossible risolvere il nome del server.**\n\n"
+                self.send(chat_id, "🌐 **Errore DNS - Impossibile risolvere il nome del server.**\n\n"
                     "Il tuo sistema non riesce a contattare i server di Hugging Face.\n\n"
                     "**Soluzioni:**\n"
                     "• Controlla la tua connessione internet\n"
@@ -3318,7 +3706,6 @@ class ArcadiaBot:
 
     # ==================== FUNZIONI ASINCRONE IN BACKGROUND (THREAD) ====================
     def _generate_img_plus_bg(self, chat_id, user_id, p, tier, count, limit):
-        """Esegue la generazione dell'immagine HD in un thread separato per non bloccare mai il bot"""
         try:
             r = CESImagePlus.generate(p)
             if r["success"]:
@@ -3342,7 +3729,6 @@ class ArcadiaBot:
             self.send(chat_id, f"❌ Errore imprevisto durante la generazione: {e}")
 
     def _generate_video_bg(self, chat_id, user_id, prompt, style):
-        """Esegue la generazione del video in un thread separato per non bloccare mai il bot"""
         try:
             self.send(chat_id, f"🎥 Genero video {style}...\n⏳ Elaborazione fluida in corso...")
             result = CESVideo.generate_video(prompt=prompt, style=style)
@@ -3368,6 +3754,137 @@ class ArcadiaBot:
             self.send(chat_id, f"❌ Errore imprevisto durante l'elaborazione del video: {str(video_err)}")
         finally:
             video_limiter.finish(user_id)
+
+    def _generate_musica_bg(self, chat_id, space_mode, prompt):
+        if not HF_TOKEN:
+            self.send(chat_id, "❌ **HUGGINGFACE_TOKEN non configurato nel file .env!**")
+            return
+
+        headers = {
+            "Authorization": f"Bearer {HF_TOKEN}",
+            "Content-Type": "application/json"
+        }
+
+        if space_mode == "sound":
+            self.send(chat_id, "🎵 **SoundForge** sta modellando la tua traccia musicale... ⏳")
+            base_url = "https://mirkodonato08-arcadiaai-soundforge.hf.space"
+            payloads_to_test = [
+                {"data": [prompt]},
+                {"data": [prompt, 10]},
+                {"data": [prompt, None, 10, 250, 0]},
+                {"data": [prompt, 10, 3, 0]},
+                {"data": [prompt, "", 5]}
+            ]
+        else:
+            self.send(chat_id, "🎙️ **VoiceForge** sta sintetizzando la traccia vocale... ⏳")
+            base_url = "https://mirkodonato08-arcadiaai-voiceforges.hf.space"
+            payloads_to_test = [
+                {"data": [prompt]},
+                {"data": [prompt, "Italian"]},
+                {"data": [prompt, "it", "it"]},
+                {"data": [prompt, "it", 1.0]}
+            ]
+
+        endpoints = ["/api/predict", "/run/predict"]
+        success = False
+        audio_url = None
+        last_error = ""
+
+        for endpoint in endpoints:
+            if success:
+                break
+            url = f"{base_url}{endpoint}"
+            
+            for i, payload in enumerate(payloads_to_test):
+                try:
+                    print(f"📡 [HF Space] Tentativo d'interrogazione su {url} (Firma {i+1})...")
+                    r = requests.post(url, json=payload, headers=headers, timeout=60)
+                    
+                    if r.status_code == 200:
+                        try:
+                            data = r.json()
+                        except ValueError:
+                            last_error = "La risposta del server non è in formato JSON (Proxy o Build Error)."
+                            continue
+
+                        if "data" in data and len(data["data"]) > 0:
+                            output_info = data["data"][0]
+                            
+                            if isinstance(output_info, dict):
+                                if "name" in output_info:
+                                    file_name = output_info["name"]
+                                    audio_url = f"{base_url}/file={file_name}"
+                                elif "url" in output_info:
+                                    audio_url = output_info["url"]
+                                elif "data" in output_info:
+                                    audio_data_b64 = output_info["data"]
+                                    if "base64," in audio_data_b64:
+                                        audio_data_b64 = audio_data_b64.split("base64,")[1]
+                                    
+                                    temp_file_path = TEMP_FOLDER / f"forge_{int(time.time())}.wav"
+                                    with open(temp_file_path, "wb") as f:
+                                        f.write(base64.b64decode(audio_data_b64))
+                                    
+                                    caption = f"🎵 Traccia generata con successo per: *{prompt}*"
+                                    self.send_audio_file(chat_id, str(temp_file_path), caption)
+                                    try: temp_file_path.unlink()
+                                    except: pass
+                                    success = True
+                                    break
+                            elif isinstance(output_info, str):
+                                if output_info.startswith("http"):
+                                    audio_url = output_info
+                                elif ";base64," in output_info:
+                                    audio_data_b64 = output_info.split(";base64,")[1]
+                                    temp_file_path = TEMP_FOLDER / f"forge_{int(time.time())}.wav"
+                                    with open(temp_file_path, "wb") as f:
+                                        f.write(base64.b64decode(audio_data_b64))
+                                    
+                                    caption = f"🎵 Traccia generata con successo per: *{prompt}*"
+                                    self.send_audio_file(chat_id, str(temp_file_path), caption)
+                                    try: temp_file_path.unlink()
+                                    except: pass
+                                    success = True
+                                    break
+
+                            if audio_url:
+                                print(f"📥 [HF Space] Download dell'audio da {audio_url}...")
+                                audio_resp = requests.get(audio_url, headers={"Authorization": f"Bearer {HF_TOKEN}"}, timeout=30)
+                                if audio_resp.status_code == 200:
+                                    ext = "mp3" if "audio/mpeg" in audio_resp.headers.get("Content-Type", "") else "wav"
+                                    temp_file_path = TEMP_FOLDER / f"forge_{int(time.time())}.{ext}"
+                                    
+                                    with open(temp_file_path, "wb") as f:
+                                        f.write(audio_resp.content)
+
+                                    caption = f"🎵 Traccia generata con successo per: *{prompt}*"
+                                    self.send_audio_file(chat_id, str(temp_file_path), caption)
+                                    
+                                    try: temp_file_path.unlink()
+                                    except: pass
+                                    success = True
+                                    break
+                                else:
+                                    last_error = f"Errore download file audio ({audio_resp.status_code})"
+                        else:
+                            last_error = "La risposta dello Space è vuota o non contiene file audio validi."
+                    else:
+                        try:
+                            error_body = r.json()
+                            last_error = f"Stato {r.status_code}: {error_body.get('error', r.text)[:200]}"
+                        except:
+                            last_error = f"Stato {r.status_code}: {r.text[:200]}"
+                        
+                except Exception as attempt_err:
+                    last_error = str(attempt_err)
+                    print(f"⚠️ Tentativo fallito: {last_error}")
+                    continue
+
+        if not success:
+            self.send(chat_id, f"❌ **Errore durante la generazione audio:**\n\n"
+                              f"Lo Space privato su Hugging Face ha rifiutato la richiesta o la firma dei parametri non è compatibile con SoundForge/VoiceForge.\n\n"
+                              f"📝 **Dettagli errore riscontrato:** `{last_error}`\n\n"
+                              f"💡 *Suggerimento:* Assicurati che lo Space sia attivo (non in stato 'Sleeping' o 'Building') e che le firme delle funzioni non siano cambiate.")
 
     def process_update(self, update):
         update_id = update.get("update_id", 0)
@@ -3399,7 +3916,47 @@ class ArcadiaBot:
                                   f"ArcadiaAI non elabora dati sensibili o intimi per tutelare appieno la riservatezza e la sicurezza dei propri utenti.")
                 return
 
-        # ==================== DEEP RESEARCH COMMANDS ====================
+        # Rilevamento immediato dei comandi registrati
+        registered_commands = [
+            "/start", "/aiuto", "/help", "/videohelp", "/video",
+            "/codice_sorgente", "/buy_bypass", "/create_vip",
+            "/redeem", "/img", "/img_plus", "/imgplus", "/stats", "/cerca",
+            "/vip_status", "/my_vip_codes", "/ai", "/alias_test",
+            "/clear_memory", "/cancella_memoria", "/reset_memory", "/memoria",
+            "/ces-360", "/aggiorna_giornale", "/pdf", "/musica"
+        ]
+
+        bot_username = self.username.lower() if self.username else ""
+        proc_text = text
+
+        if bot_username and proc_text:
+            proc_text = re.sub(r'(?i)@' + re.escape(bot_username), '', proc_text).strip()
+            proc_text = re.sub(r'(/\w+)@' + re.escape(bot_username), r'\1', proc_text, flags=re.IGNORECASE)
+
+        first_word = proc_text.split()[0].lower() if proc_text else ""
+        is_command = first_word in registered_commands
+        is_mentioned = bot_username and f"@{bot_username}" in text.lower()
+
+        is_group = chat_type in ["group", "supergroup"]
+
+        # Nei gruppi risponde SOLO se interpellata esplicitamente
+        if is_group:
+            if not (is_command or is_mentioned):
+                return
+
+        # VERIFICA CONTROLLO RATE LIMIT RICHIESTE (ANTI-SPAM UTENTI FREE)
+        exempt_commands = ["/start", "/aiuto", "/help", "/buy_bypass", "/redeem", "/vip", "/vip_status"]
+        if text and first_word not in exempt_commands:
+            allowed, limit_msg = self.db.check_rate_limit(user_id)
+            if not allowed:
+                self.send(chat_id, limit_msg)
+                return
+            
+            tier = self.db.get_user_tier(user_id)
+            if tier == "free":
+                self.db.record_free_request(user_id)
+
+        # DEEP RESEARCH COMMANDS
         if text:
             if text.startswith("/deep "):
                 args = text[5:].strip()
@@ -3450,28 +4007,6 @@ class ArcadiaBot:
         self.add_to_short_term_memory(user_id, "user", text)
         self.db.save_conversation(user_id, chat_id, "user", text)
         
-        is_group = chat_type in ["group", "supergroup"]
-        bot_username = self.username.lower() if self.username else ""
-
-        registered_commands = [
-            "/start", "/aiuto", "/help", "/videohelp", "/video",
-            "/codice_sorgente", "/buy_bypass", "/create_vip",
-            "/redeem", "/img", "/img_plus", "/imgplus", "/stats", "/cerca",
-            "/vip_status", "/my_vip_codes", "/ai", "/alias_test",
-            "/clear_memory", "/cancella_memoria", "/reset_memory", "/memoria",
-            "/ces-360", "/aggiorna_giornale", "/pdf"
-        ]
-        
-        proc_text = text
-        
-        if bot_username:
-            proc_text = re.sub(r'(?i)@' + re.escape(bot_username), '', proc_text).strip()
-            proc_text = re.sub(r'(/\w+)@' + re.escape(bot_username), r'\1', proc_text, flags=re.IGNORECASE)
-        
-        first_word = proc_text.split()[0].lower() if proc_text else ""
-        is_command = first_word in registered_commands
-        is_mentioned = bot_username and f"@{bot_username}" in text.lower()
-        
         print(f"📥 [{chat_type.upper()}] Messaggio da {user_name} (ID: {user_id}): '{text}'")
         print(f"   ↳ Processato: '{proc_text}' | first_word: '{first_word}'")
         
@@ -3479,68 +4014,54 @@ class ArcadiaBot:
             print(f"   ↳ ✅ Riconosciuto come comando: {first_word}")
         if is_mentioned:
             print(f"   ↳ ✅ Taggato: @{bot_username}")
-            
-        if is_group:
-            if not (is_command or is_mentioned):
-                print("   ↳ 🚫 Ignorato (Nessun comando o tag nei gruppi).")
+
+        # ROUTING DEI COMANDI SPECIFICI ED ESCLUSIVI
+        
+        # Gestione esclusiva del comando /musica
+        if first_word == "/musica":
+            args = proc_text[7:].strip()
+            if not args:
+                self.send(chat_id, "🎹 **ArcadiaAI Forge Musica & Voce**\n\n"
+                                  "Usa questo comando per interrogare gli Space privati su Hugging Face:\n"
+                                  "• `/musica sound [prompt]` - Genera effetti sonori o melodie con SoundForge\n"
+                                  "• `/musica voice [testo]` - Genera sintesi vocale con VoiceForge\n\n"
+                                  "*Esempio:* `/musica sound epic lo-fi beat` \n"
+                                  "*Esempio:* `/musica voice Ciao da Arcadia!`")
                 return
 
-        ai_query = proc_text
-        
-        if first_word == "/ai":
-            ai_query = proc_text[3:].strip()
-            if not ai_query:
-                self.send(chat_id, "💬 Cosa vuoi chiedermi? Usa `/ai <domanda>`")
-                return
-        
-        if first_word == "/ces-360":
-            prompt = proc_text[8:].strip()
-            self.handle_ces360(chat_id, prompt)
-            return
-        
-        if bot_username:
-            ai_query = re.sub(r'(?i)@' + re.escape(bot_username), '', ai_query).strip()
-        
-        ai_query = re.sub(r'\s+', ' ', ai_query).strip()
-        
-        if first_word in ["/memoria", "/memory"]:
-            status = self.db.get_memory_status(user_id, chat_id)
-            short_count = len(self.short_term_memory.get(user_id, []))
-            self.send(chat_id, f"🧠 **Stato Memoria ArcadiaAI**\n\n"
-                f"**💾 Memoria a breve termine (RAM):**\n"
-                f"   • Messaggi: {short_count}/{self.MAX_SHORT_TERM}\n\n"
-                f"**💿 Memoria a lungo termine (Database):**\n"
-                f"   • Messaggi: {status['count']}\n"
-                f"   • Ultimo messaggio: {status['last_message']}\n\n"
-                f"📌 Usa `/clear_memory` per cancellare tutta la memoria.")
-            return
-        
-        if first_word in ["/clear_memory", "/cancella_memoria", "/reset_memory"]:
-            self.clear_memory(user_id, chat_id)
-            self.send(chat_id, "🧹 **Memoria cancellata!**\n\n"
-                "Ho cancellato tutte le mie memorie su di te.\n"
-                "Non ricorderò più le conversazioni precedenti.")
+            parts = args.split(maxsplit=1)
+            mode = parts[0].lower()
+            if mode not in ["sound", "voice"]:
+                mode = "sound"
+                prompt = args
+            else:
+                if len(parts) < 2:
+                    self.send(chat_id, f"⚠️ Specifica il testo o il prompt per la generazione `{mode}`!")
+                    return
+                prompt = parts[1].strip()
+
+            threading.Thread(target=self._generate_musica_bg, args=(chat_id, mode, prompt), daemon=True).start()
             return
 
-        # ==================== GESTIONE DEL COMANDO /pdf CORRETTO E ALLINEATO ====================
+        # Gestione esclusiva del comando /pdf
         if first_word == "/pdf":
             prompt_utente = proc_text[4:].strip()
             
             if not prompt_utente:
-                self.send(chat_id, "Fornisce un argumentu per u PDF! 📝\nEs: `/pdf A storia di l'urdinatori`")
+                self.send(chat_id, "Fornisci un argomento per il PDF! 📝\nEs: `/pdf La storia dei computer`")
                 return
 
             if not HAS_PDF_GENERATOR:
-                self.send(chat_id, "❌ Serviziu di generazione PDF micca dispunibile per u mumentu.")
+                self.send(chat_id, "❌ Servizio di generazione PDF non disponibile al momento.")
                 return
 
-            msg_attesa = self.send(chat_id, "🔍 Elaburazione di u testu è impaginazione di u PDF in corsu...")
+            msg_attesa = self.send(chat_id, "🔍 Elaborazione del testo e impaginazione del PDF in corso...")
             msg_id = msg_attesa.get("result", {}).get("message_id") if msg_attesa and msg_attesa.get("ok") else None
 
             try:
                 testo_ia = AIClient.generate(prompt_utente, max_tok=1500)
                 if not testo_ia:
-                    testo_ia = "Ùn aghju micca pussutu generà u testu."
+                    testo_ia = "Non sono riuscito a generare il testo."
 
                 generator = ArcadiaPDFGenerator()
                 titolo_pdf = f"Report: {prompt_utente[:35]}..."
@@ -3553,7 +4074,7 @@ class ArcadiaBot:
                     chat_id=chat_id,
                     pdf_buffer=pdf_buffer,
                     file_name=nome_file,
-                    caption=f"📄 Eccu u vostru ducumentu PDF generatu per: *{prompt_utente}*",
+                    caption=f"📄 Ecco il tuo documento PDF generato per: *{prompt_utente}*",
                     token=token_bot
                 )
 
@@ -3561,13 +4082,40 @@ class ArcadiaBot:
                     if msg_id:
                         self.api("deleteMessage", {"chat_id": chat_id, "message_id": msg_id})
                 else:
-                    self.send(chat_id, "❌ Ci hè statu un errore durante l'inviu di u ducumentu PDF.")
+                    self.send(chat_id, "❌ Si è verificato un errore durante l'invio del file PDF.")
 
             except Exception as e:
-                self.send(chat_id, f"❌ Errore durante a creazione di u PDF: {str(e)}")
+                self.send(chat_id, f"❌ Errore durante la creazione del PDF: {str(e)}")
             return
 
-        # ==================== COMANDO MANUALE SINCRONIZZAZIONE GIORNALE ====================
+        # Gestione esclusiva del comando /ces-360
+        if first_word == "/ces-360":
+            prompt = proc_text[8:].strip()
+            self.handle_ces360(chat_id, prompt)
+            return
+
+        # Gestione esclusiva del comando /memoria
+        if first_word in ["/memoria", "/memory"]:
+            status = self.db.get_memory_status(user_id, chat_id)
+            short_count = len(self.short_term_memory.get(user_id, []))
+            self.send(chat_id, f"🧠 **Stato Memoria ArcadiaAI**\n\n"
+                f"**💾 Memoria a breve termine (RAM):**\n"
+                f"   • Messaggi: {short_count}/{self.MAX_SHORT_TERM}\n\n"
+                f"**💿 Memoria a lungo termine (Database):**\n"
+                f"   • Messaggi: {status['count']}\n"
+                f"   • Ultimo messaggio: {status['last_message']}\n\n"
+                f"📌 Usa `/clear_memory` per cancellare tutta la memoria.")
+            return
+        
+        # Gestione esclusiva di reset memoria
+        if first_word in ["/clear_memory", "/cancella_memoria", "/reset_memory"]:
+            self.clear_memory(user_id, chat_id)
+            self.send(chat_id, "🧹 **Memoria cancellata!**\n\n"
+                "Ho cancellato tutte le mie memorie su di te.\n"
+                "Non ricorderò più le conversazioni precedenti.")
+            return
+
+        # Gestione esclusiva del comando /aggiorna_giornale
         if first_word == "/aggiorna_giornale":
             self.send(chat_id, "📰 **Sincronizzazione in corso...**\n"
                               "Sto scaricando gli articoli più recenti da Leonia+ (@leoniaplusgiornale) senza alcun consumo di risorse.")
@@ -3581,6 +4129,7 @@ class ArcadiaBot:
                                   "Non sono riuscito a raggiungere Telegram per scaricare il feed. Riprova più tardi.")
             return
         
+        # Gestione esclusiva del comando /start
         if first_word == "/start":
             dev = "🔓 Dev" if user_id == DEVELOPER_USER_ID else ""
             self.send(chat_id, f"👋 Ciao {user_name}! Sono ArcadiaAI.\n\n"
@@ -3589,6 +4138,7 @@ class ArcadiaBot:
                 "🛡️ *Privacy Guard attivo sul server localmente!*\n\n"
                 "📰 /aggiorna_giornale - Forza l'aggiornamento da Leonia+\n"
                 "📄 /pdf [argomento] - Genera un documento PDF professionale\n"
+                "🎹 /musica - Genera traccia audio o vocale (SoundForge/VoiceForge)\n"
                 "🎬 /video [desc] - Video AI diretto\n"
                 "🎨 /img [desc] - Immagine standard\n"
                 "🎨 /img_plus [desc] - Immagine HD (FLUX)\n"
@@ -3602,10 +4152,12 @@ class ArcadiaBot:
                 f"📋 /aiuto{(' ' + dev) if dev else ''}")
             return
         
+        # Gestione esclusiva del comando /aiuto
         if first_word in ["/aiuto", "/help"]:
             self.send(chat_id, "🎬 **Comandi ArcadiaAI**\n\n"
                 "📰 /aggiorna_giornale - Sincronizza notizie da @leoniaplusgiornale\n"
                 "📄 /pdf [argomento] - Crea un documento PDF professionale\n"
+                "🎹 /musica [sound/voice] [prompt] - Genera musica o sintesi vocale\n"
                 "🎬 /video [stile] [descrizione] - Video AI\n"
                 "🎨 /img [desc] - Immagine standard\n"
                 "🎨 /img_plus [desc] - Immagine ad alta definizione (FLUX)\n"
@@ -3623,8 +4175,8 @@ class ArcadiaBot:
                 "/clear_memory - Cancella memoria\n\n"
                 "**Deep Research:**\n"
                 "/deep free [domanda] - Ricerca base (gratis)\n"
-                "/deep plus [domanda] - Ricerca avanzata (25 ARC)\n"
-                "/deep pro [domanda] - Ricerca professionale (50 ARC)\n"
+                "/deep plus [domanda] - Ricerca avanzata (15 ARC)\n"
+                "/deep pro [domanda] - Ricerca professionale (25 ARC)\n"
                 "/deep_status [id] - Stato job\n"
                 "/deep_history - Storico\n\n"
                 "**VIP:**\n"
@@ -3636,6 +4188,7 @@ class ArcadiaBot:
                 f"• Oppure taggami scrivendo `@{self.username} <domanda>`")
             return
         
+        # Gestione esclusiva del comando /videohelp
         if first_word == "/videohelp":
             self.send(chat_id, "🎬 **CES Video** - Text-to-Video Diretto\n\n"
                 "/video [stile] [descrizione]\n"
@@ -3645,6 +4198,7 @@ class ArcadiaBot:
                 "🏦 /buy_bypass per illimitati")
             return
         
+        # Gestione esclusiva del comando /alias_test
         if first_word == "/alias_test":
             if not WIKIALIAS:
                 self.send(chat_id, "⚠️ **Nessun alias caricato!**\n\n"
@@ -3663,14 +4217,28 @@ class ArcadiaBot:
                 f"**📋 Mappatura Alias attuale ({len(WIKIALIAS)} alias):**\n{mapping}")
             return
         
+        # Gestione esclusiva del comando /ai
         if first_word == "/ai":
-            if not ai_query:
+            ai_query_extracted = proc_text[3:].strip()
+            if not ai_query_extracted:
+                self.send(chat_id, "💬 Cosa vuoi chiedermi? Usa `/ai <domanda>`")
                 return
             
-            print(f"   🤖 Query AI: '{ai_query}'")
+            print(f"   🤖 Query AI: '{ai_query_extracted}'")
+            
+            # CONTROLLO PRIORITARIO: CACHE PERMANENTE
+            cached_response = self.cache.get(ai_query_extracted)
+            if cached_response:
+                self.add_to_short_term_memory(user_id, "assistant", cached_response)
+                self.db.save_conversation(user_id, chat_id, "assistant", cached_response)
+                self.send(chat_id, cached_response)
+                print(f"   💾 Risposta dalla cache permanente (con variazione)")
+                return
+            
+            # Se non in cache, procedi con la generazione
             self.send(chat_id, "🔍 Cerco nelle mie conoscenze...")
             context = self.get_full_context(user_id, chat_id, short_limit=5, long_limit=8)
-            search_results = self.knowledge.search(ai_query, max_results=10)
+            search_results = self.knowledge.search(ai_query_extracted, max_results=10)
             
             if search_results:
                 context_parts = []
@@ -3690,23 +4258,27 @@ class ArcadiaBot:
 **CONOSCENZA DAI FILE LOCALI:**
 {knowledge_context}
 
-**REGOLA FONDAMENTALE DI RISPOSTA:**
+**REGOLA FONDAMENTALE DI RESPONSABILITÀ:**
 - Se l'informazione è presente nel testo qui sopra, usala obbligatoriamente per rispondere in modo preciso e dettagliato.
 - Se l'informazione non è presente, usa la tua conoscenza predefinita o cerca nel web.
 - CITA LA FONTE (il nome del file .txt) esclusivamente una sola volta in fondo alla risposta, formattata come `[Fonte: nome_file.txt]`.
 
 **DOMANDA DELL'UTENTE:**
-{ai_query}
+{ai_query_extracted}
 
 **RISPOSTA (SOLO IN ITALIANO, DIRETTA):**"""
             
             answer = AIClient.generate(system, max_tok=1200)
             if answer:
+                # Salva nella cache permanente
+                self.cache.store(ai_query_extracted, answer)
+                
                 self.add_to_short_term_memory(user_id, "assistant", answer)
                 self.db.save_conversation(user_id, chat_id, "assistant", answer)
                 self.send(chat_id, answer.strip())
             return
         
+        # Gestione esclusiva del comando /video
         if first_word == "/video":
             args = proc_text[6:].strip()
             if not args:
@@ -3734,15 +4306,18 @@ class ArcadiaBot:
             threading.Thread(target=self._generate_video_bg, args=(chat_id, user_id, prompt, style), daemon=True).start()
             return
         
+        # Gestione esclusiva del comando /codice_sorgente
         if first_word == "/codice_sorgente":
             self.send(chat_id, "📂 Codice sorgente: https://github.com/Mirko-linux/ArcadiaAI-new")
             return
         
+        # Gestione esclusiva del comando /buy_bypass
         if first_word == "/buy_bypass":
             prices = "\n".join([f"• {i['name']}: {i['arc']} ARC" for i in BYPASS_PRICES.values()])
             self.send(chat_id, f"👋 Scegli come supportarci:\n\n{prices}\n\nUsa /buy_bypass [nome] per procedere!")
             return
         
+        # Gestione esclusiva del comando /create_vip
         if first_word == "/create_vip":
             if user_id != DEVELOPER_USER_ID:
                 self.send(chat_id, "❌ Solo lo sviluppatore può creare codici VIP.")
@@ -3763,7 +4338,7 @@ class ArcadiaBot:
                 self.send(chat_id, f"❌ Errore durante la creazione: {str(e)}")
             return
         
-        if_word = "/redeem"
+        # Gestione esclusiva del comando /redeem
         if first_word == "/redeem":
             code = proc_text[7:].strip().upper()
             if not code:
@@ -3777,6 +4352,7 @@ class ArcadiaBot:
                 self.send(chat_id, f"❌ {message}")
             return
         
+        # Gestione esclusiva del comando /img_plus
         if first_word in ["/img_plus", "/imgplus"]:
             p = proc_text[10:].strip() if first_word == "/img_plus" else proc_text[8:].strip()
             print(f"   ↳ [ROUTING] Comando /img_plus intercettato correttamente! Prompt estratto: '{p}'")
@@ -3800,7 +4376,7 @@ class ArcadiaBot:
             threading.Thread(target=self._generate_img_plus_bg, args=(chat_id, user_id, p, tier, count, limit), daemon=True).start()
             return
 
-        if first_word == "/img":
+        # Gestione esclusiva del comando /img        if first_word == "/img":
             p = proc_text[4:].strip()
             if p:
                 r = CESImage.generate(p)
@@ -3810,11 +4386,13 @@ class ArcadiaBot:
                     self.send(chat_id, f"⚠️ {r['error']}")
             return
             
+        # Gestione esclusiva del comando /stats
         if first_word == "/stats":
             mem = self._mem()
             self.send(chat_id, f"💬 {self.msgs} | 🤖 {AIClient.count} | 🎨 {CESImage.count} | {CESVideo.count} | 🧠 {mem:.1f}MB")
             return
         
+        # Gestione esclusiva del comando /cerca
         if first_word == "/cerca":
             query = proc_text[7:].strip()
             if not query:
@@ -3851,14 +4429,30 @@ class ArcadiaBot:
                 self.send(chat_id, msg[:4000])
             return
 
-        if not ai_query:
-            if is_group:
-                self.send(chat_id, f"Ciao {user_name}! Per farmi una domanda usa il comando `/ai <domanda>` oppure taggami scrivendo `@{self.username} <domanda>`.")
+        # ==================== GESTIONE DEL DIALOGO LIBERO DI DEFAULT ====================
+        ai_query = proc_text
+        
+        # Se siamo in un gruppo e non è un comando /ai, ignora
+        if is_group and not first_word == "/ai":
+            self.send(chat_id, f"Ciao {user_name}! Per farmi una domanda usa il comando `/ai <domanda>` oppure taggami scrivendo `@{self.username} <domanda>`.")
             return
 
+        if not ai_query:
+            return
+
+        # Controlla risposte predefinite
         predefined = get_predefined_response(ai_query)
         if predefined:
             self.send(chat_id, predefined)
+            return
+        
+        # CONTROLLO PRIORITARIO: CACHE PERMANENTE
+        cached_response = self.cache.get(ai_query)
+        if cached_response:
+            self.add_to_short_term_memory(user_id, "assistant", cached_response)
+            self.db.save_conversation(user_id, chat_id, "assistant", cached_response)
+            self.send(chat_id, cached_response)
+            print(f"   💾 Risposta dalla cache permanente (con variazione)")
             return
         
         self.send(chat_id, "🔍 Cerco nelle mie conoscenze...")
@@ -3896,6 +4490,9 @@ class ArcadiaBot:
         answer = AIClient.generate(system, max_tok=1200)
         
         if answer:
+            # Salva nella cache permanente
+            self.cache.store(ai_query, answer)
+            
             self.add_to_short_term_memory(user_id, "assistant", answer)
             self.db.save_conversation(user_id, chat_id, "assistant", answer)
             self.send(chat_id, answer.strip())
@@ -3913,6 +4510,7 @@ class ArcadiaBot:
         if self.msgs % 10 == 0:
             gc.collect()
             self.db.cleanup()
+            self.cache.clear_old_cache(days=30)
             
     def _mem(self):
         try:
@@ -3941,6 +4539,7 @@ class ArcadiaBot:
         print("📰 Collegamento asincrono a @leoniaplusgiornale attivo!")
         print("🌐 Risponde SEMPRE in ITALIANO")
         print("📜 Licenza: MPL 2.0")
+        print("💾 Cache permanente attiva! Le risposte vengono salvate con variazioni.")
         print("="*60 + "\n")
         
         if HF_TOKEN:
@@ -3991,7 +4590,6 @@ class ArcadiaBot:
 
 # ==================== BACKGROUND LOOP PER LEONIA+ ====================
 def leoniaplus_background_loop(bot):
-    """Ciclo infinito in background (ogni 2 ore) per mantenere aggiornate le notizie"""
     time.sleep(5)
     while True:
         success = LeoniaPlusUpdater.scrape_channel()
@@ -4000,27 +4598,6 @@ def leoniaplus_background_loop(bot):
         time.sleep(7200)
 
 def main():
-    print("\n" + "="*60)
-    print("🤖 ArcadiaAI - Versione con CES-360 su Hugging Face")
-    print("🧠 Modello CES-360: mirkodonato08/CES-360")
-    print("🧠 Deep Research Engine attivo!")
-    print("📊 Piani: free (8 fonti), plus (25 fonti), pro (80 fonti)")
-    print("🤖 Gemini multi-fallback: gemini-2.5-flash, gemini-2.5-pro, gemini-2.5-flash-lite")
-    print("🎨 Modello HD Image: FLUX.1-schnell (Inference API con fallback DoH)")
-    print("💾 I messaggi NON vengono persi quando il bot è spento!")
-    print("🔒 I nomi reali NON vengono mai inviati alle API!")
-    print("🖼️ Analisi immagini con CES Image Viewer integrata")
-    print("📌 /ai funziona in gruppi e supergruppi!")
-    print("🔧 /alias_test per testare il sistema")
-    print("🧠 /memoria per vedere lo stato della memoria")
-    print("🧹 /clear_memory per cancellare la memoria")
-    print("🧠 /ces-360 per interrogare il modello CES-360")
-    print("🎨 /img_plus per generare immagini ad alta definizione")
-    print("📰 Collegamento asincrono a @leoniaplusgiornale attivo!")
-    print("🌐 Risponde SEMPRE in ITALIANO")
-    print("📜 Licenza: MPL 2.0")
-    print("="*60 + "\n")
-    
     deep_engine.start()
     print("🧠 Motore Deep Research avviato correttamente")
     
