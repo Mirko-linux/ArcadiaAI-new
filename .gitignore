@@ -87,3 +87,5 @@ dist/
 # .gitignore
 # File JSON locali non da tracciare
 wikialias.json
+predefined_responses.py
+predefinite.txt
