@@ -5,7 +5,7 @@ import html
 import requests
 from typing import Optional
 
-# Prova a importare ReportLab. Se non è installato, la guida sotto spiega come fare.
+# Prova a importare ReportLab. Se non è installato, il bot continuerà comunque a funzionare stabilmente.
 try:
     from reportlab.lib.pagesizes import letter
     from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, KeepTogether, PageBreak
@@ -17,65 +17,73 @@ except ImportError:
     HAS_REPORTLAB = False
 
 
-class NumberedCanvas(canvas.Canvas):
-    """
-    Un Canvas personalizzato a due passaggi che calcola automaticamente 
-    il numero totale di pagine per stampare un pié di pagina dinamico 
-    del tipo "Pagina X di Y" e un'intestazione elegante.
-    """
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._saved_page_states = []
+# Se ReportLab è presente, dichiariamo la classe NumberedCanvas agganciata al canvas nativo.
+# Altrimenti definiamo una classe fittizia per evitare errori di compilazione (NameError) all'avvio del bot.
+if HAS_REPORTLAB:
+    class NumberedCanvas(canvas.Canvas):
+        """
+        Un Canvas personalizzato a due passaggi che calcola automaticamente 
+        il numero totale di pagine per stampare un pié di pagina dinamico 
+        del tipo "Pagina X di Y" e un'intestazione elegante.
+        """
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self._saved_page_states = []
 
-    def showPage(self):
-        self._saved_page_states.append(dict(self.__dict__))
-        self._startPage()
+        def showPage(self):
+            self._saved_page_states.append(dict(self.__dict__))
+            self._startPage()
 
-    def save(self):
-        num_pages = len(self._saved_page_states)
-        for state in self._saved_page_states:
-            self.__dict__.update(state)
-            self.draw_page_elements(num_pages)
-            super().showPage()
-        super().save()
+        def save(self):
+            num_pages = len(self._saved_page_states)
+            for state in self._saved_page_states:
+                self.__dict__.update(state)
+                self.draw_page_elements(num_pages)
+                super().showPage()
+            super().save()
 
-    def draw_page_elements(self, page_count):
-        self.saveState()
-        
-        # Colori della palette ArcadiaAI (Blu scuro e Grigio elegante)
-        primary_color = colors.HexColor("#1A365D")
-        text_muted = colors.HexColor("#718096")
-        line_color = colors.HexColor("#E2E8F0")
-        
-        # Margini e coordinate
-        page_width, page_height = letter
-        margin = 40
-        
-        # --- INTESTAZIONE (Dalla pagina 2 in poi per non rovinare la copertina) ---
-        if self._pageNumber > 1:
-            self.setFont("Helvetica-Bold", 8)
-            self.setFillColor(primary_color)
-            self.drawString(margin, page_height - 30, "ARCADIA AI - DOCUMENTO GENERATO")
+        def draw_page_elements(self, page_count):
+            self.saveState()
             
+            # Colori della palette ArcadiaAI (Blu scuro e Grigio elegante)
+            primary_color = colors.HexColor("#1A365D")
+            text_muted = colors.HexColor("#718096")
+            line_color = colors.HexColor("#E2E8F0")
+            
+            # Margini e coordinate
+            page_width, page_height = letter
+            margin = 40
+            
+            # --- INTESTAZIONE (Dalla pagina 2 in poi per non rovinare la copertina) ---
+            if self._pageNumber > 1:
+                self.setFont("Helvetica-Bold", 8)
+                self.setFillColor(primary_color)
+                self.drawString(margin, page_height - 30, "ARCADIA AI - DOCUMENTO GENERATO")
+                
+                self.setStrokeColor(line_color)
+                self.setLineWidth(0.5)
+                self.line(margin, page_height - 35, page_width - margin, page_height - 35)
+                
+            # --- PIÉ DI PAGINA (Su tutte le pagine) ---
             self.setStrokeColor(line_color)
             self.setLineWidth(0.5)
-            self.line(margin, page_height - 35, page_width - margin, page_height - 35)
+            self.line(margin, 45, page_width - margin, 45)
             
-        # --- PIÉ DI PAGINA (Su tutte le pagine) ---
-        self.setStrokeColor(line_color)
-        self.setLineWidth(0.5)
-        self.line(margin, 45, page_width - margin, 45)
-        
-        # Testo del pié di pagina
-        self.setFont("Helvetica", 8)
-        self.setFillColor(text_muted)
-        self.drawString(margin, 30, "Generato automaticamente da ArcadiaAI via Telegram")
-        
-        # Numero di pagina dinamico (Pagina X di Y)
-        page_str = f"Pagina {self._pageNumber} di {page_count}"
-        self.drawRightString(page_width - margin, 30, page_str)
-        
-        self.restoreState()
+            # Testo del pié di pagina
+            self.setFont("Helvetica", 8)
+            self.setFillColor(text_muted)
+            self.drawString(margin, 30, "Generato automaticamente da ArcadiaAI via Telegram")
+            
+            # Numero di pagina dinamico (Pagina X di Y)
+            page_str = f"Pagina {self._pageNumber} di {page_count}"
+            self.drawRightString(page_width - margin, 30, page_str)
+            
+            self.restoreState()
+else:
+    class NumberedCanvas:
+        """Classe fittizia per evitare NameError in fase di importazione senza ReportLab."""
+        def __init__(self, *args, **kwargs):
+            pass
 
 
 class ArcadiaPDFGenerator:
